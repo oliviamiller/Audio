@@ -32,7 +32,6 @@ struct AudioStreamContext {
     std::atomic<bool> first_callback_captured;
 
     std::atomic<uint64_t> total_samples_written;
-    std::atomic<bool> is_recording;
 
     AudioStreamContext(const vsdk::audio_info& audio_info,
                       int samples_per_chunk,

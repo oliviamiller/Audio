@@ -16,32 +16,22 @@ namespace microphone {
 
 namespace vsdk = ::viam::sdk;
 
-/**
- * Configuration for opening a PortAudio input stream.
- */
 struct StreamConfig {
     PaDeviceIndex device_index;
     int channels;
     int sample_rate;
-    double latency = 0.0;  // Suggested latency in seconds (0.0 = use device default)
+    double latency = 0.0;
     PaStreamCallback* callback = nullptr;
     void* user_data = nullptr;
 };
 
-/**
- * Opens a PortAudio input stream for audio recording.
- *
- * @param stream Pointer to receive the opened stream
- * @param config Stream configuration parameters
- * @param pa Optional PortAudio interface (for testing)
- */
 void openStream(PaStream** stream,
                 const StreamConfig& config,
                 audio::portaudio::PortAudioInterface* pa = nullptr);
-
 void startStream(PaStream* stream, audio::portaudio::PortAudioInterface* pa= nullptr);
 PaDeviceIndex findDeviceByName(const std::string& name, audio::portaudio::PortAudioInterface* pa= nullptr);
 void shutdownStream(PaStream* stream, audio::portaudio::PortAudioInterface* pa= nullptr);
+void startPortAudio(audio::portaudio::PortAudioInterface* pa = nullptr);
 
 
 class Microphone final : public viam::sdk::AudioIn, public viam::sdk::Reconfigurable {
@@ -71,7 +61,7 @@ public:
     std::string device_name_;
     int sample_rate_;
     int num_channels_;
-    double latency_;  // Suggested latency in seconds (0.0 = use device default)
+    double latency_;
     static vsdk::Model model;
 
     // The mutex protects the stream and context pointer
@@ -82,12 +72,5 @@ public:
     int active_streams_;  // Count of active get_audio calls
 };
 
-/**
- * Initializes the PortAudio library.
- * Must be called once before creating any Microphone instances.
- *
- * @param pa Optional PortAudio interface (for testing)
- */
-void startPortAudio(audio::portaudio::PortAudioInterface* pa = nullptr);
 
 } // namespace microphone

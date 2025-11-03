@@ -490,6 +490,7 @@ void startStream(PaStream* stream, audio::portaudio::PortAudioInterface* pa) {
 
     PaError err = audio_interface.startStream(stream);
     if (err != paNoError) {
+        audio_interface.closeStream(stream);
         VIAM_SDK_LOG(error) << "Failed to start audio stream: " << Pa_GetErrorText(err);
         throw std::runtime_error(std::string("Failed to start audio stream: ") + Pa_GetErrorText(err));
     }

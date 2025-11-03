@@ -52,7 +52,6 @@ TEST_F(AudioStreamContextTest, StereoContextCreation) {
     EXPECT_EQ(ctx.info.num_channels, 2);
     EXPECT_EQ(ctx.info.sample_rate_hz, 44100);
     EXPECT_EQ(ctx.samples_per_chunk, 4410);
-    EXPECT_TRUE(ctx.is_recording.load());
 }
 
 
@@ -174,15 +173,6 @@ TEST_F(AudioStreamContextTest, ConcurrentWriteAndRead) {
     EXPECT_EQ(read_total.load(), total_samples);
 }
 
-TEST_F(AudioStreamContextTest, RecordingFlagCanBeToggled) {
-    EXPECT_TRUE(context_->is_recording.load());
-
-    context_->is_recording.store(false);
-    EXPECT_FALSE(context_->is_recording.load());
-
-    context_->is_recording.store(true);
-    EXPECT_TRUE(context_->is_recording.load());
-}
 
 TEST_F(AudioStreamContextTest, ReadMoreThanAvailable) {
     // Write only 50 samples
@@ -250,6 +240,120 @@ TEST_F(AudioStreamContextTest, CalculateSampleTimestamp) {
     auto timestamp3 = calculate_sample_timestamp(context_.get(), 22050);
     EXPECT_NEAR(timestamp3.count(), baseline_ns + 500'000'000, 1000);  // ~0.5 seconds
 }
+
+
+ class AudioCallbackTest : public ::testing::Test {
+  protected:
+      void SetUp() override {
+          // Create test audio info
+          test_info = viam::sdk::audio_info{
+              .codec = viam::sdk::audio_codecs::PCM_16,
+              .sample_rate_hz = 44100,
+              .num_channels = 1
+          };
+
+          // Small chunk size for testing (100 frames at 44.1kHz = ~2.3ms)
+          samples_per_chunk = 100;
+
+          // Create ring buffer context (10 second buffer)
+          ctx = std::make_unique<microphone::AudioStreamContext>(
+              test_info,
+              samples_per_chunk,
+              10  // 10 seconds buffer
+          );
+
+          // Create mock time info
+          mock_time_info.inputBufferAdcTime = 0.0;
+          mock_time_info.currentTime = 0.0;
+          mock_time_info.outputBufferDacTime = 0.0;
+      }
+
+      std::vector<int16_t> create_test_samples(size_t count, int16_t value = 16383) {
+          return std::vector<int16_t>(count, value);
+      }
+
+      int call_callback(const std::vector<int16_t>& samples) {
+          return microphone::AudioCallback(
+              samples.data(),      // inputBuffer
+              nullptr,             // outputBuffer
+              samples.size() / ctx->info.num_channels,  // framesPerBuffer (not total samples)
+              &mock_time_info,     // timeInfo
+              0,                   // statusFlags
+              ctx.get()            // userData
+          );
+      }
+
+      viam::sdk::audio_info test_info;
+      size_t samples_per_chunk;
+      std::unique_ptr<microphone::AudioStreamContext> ctx;
+      PaStreamCallbackTimeInfo mock_time_info;
+  };
+
+
+  TEST_F(AudioCallbackTest, WritesSamplesToCircularBuffer) {
+      // Create test samples
+      std::vector<int16_t> samples = {100, 200, 300, 400, 500};
+
+      // Call the callback
+      int result = call_callback(samples);
+
+      // Verify callback returned paContinue
+      EXPECT_EQ(result, paContinue);
+
+      // Verify samples were written to circular buffer
+      EXPECT_EQ(ctx->get_write_position(), samples.size());
+
+      // Read samples back and verify they match
+      std::vector<int16_t> read_buffer(samples.size());
+      uint64_t read_pos = 0;
+      int samples_read = ctx->read_samples(read_buffer.data(), samples.size(), read_pos);
+
+      EXPECT_EQ(samples_read, samples.size());
+      EXPECT_EQ(read_buffer, samples);
+  }
+
+  TEST_F(AudioCallbackTest, TracksFirstCallbackTime) {
+      std::vector<int16_t> samples = create_test_samples(100);
+
+      // Before callback, first_callback_captured should be false
+      EXPECT_FALSE(ctx->first_callback_captured.load());
+
+      call_callback(samples);
+
+      // After callback, timing should be captured
+      EXPECT_TRUE(ctx->first_callback_captured.load());
+      EXPECT_EQ(ctx->first_sample_adc_time, mock_time_info.inputBufferAdcTime);
+  }
+
+  TEST_F(AudioCallbackTest, TracksSamplesWritten) {
+      std::vector<int16_t> samples = create_test_samples(100);
+
+      EXPECT_EQ(ctx->total_samples_written.load(), 0);
+
+      call_callback(samples);
+
+      EXPECT_EQ(ctx->total_samples_written.load(), 100);
+
+      // Call again
+      call_callback(samples);
+
+      EXPECT_EQ(ctx->total_samples_written.load(), 200);
+  }
+
+  TEST_F(AudioCallbackTest, HandlesNullInputBuffer) {
+      int result = microphone::AudioCallback(
+          nullptr,           // null input buffer
+          nullptr,
+          100,
+          &mock_time_info,
+          0,
+          ctx.get()
+      );
+
+      // Should return paContinue and not write anything
+      EXPECT_EQ(result, paContinue);
+      EXPECT_EQ(ctx->get_write_position(), 0);
+  }
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);

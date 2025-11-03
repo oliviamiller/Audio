@@ -14,7 +14,6 @@ AudioStreamContext::AudioStreamContext(
     , first_sample_adc_time(0.0)
     , first_callback_captured(false)
     , total_samples_written(0)
-    , is_recording(true)
 {
     // Pre-allocate circular buffer for N seconds of audio
     buffer_capacity = audio_info.sample_rate_hz * audio_info.num_channels * buffer_duration_seconds;
@@ -92,7 +91,7 @@ int AudioCallback(const void *inputBuffer, void *outputBuffer,
 {
     AudioStreamContext* ctx = static_cast<AudioStreamContext*>(userData);
 
-    if (inputBuffer == nullptr || !ctx->is_recording.load(std::memory_order_relaxed)) {
+    if (inputBuffer == nullptr) {
         return paContinue;
     }
 

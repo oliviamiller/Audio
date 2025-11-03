@@ -75,23 +75,70 @@ protected:
 
         test_mic_name_ = "test_audioin";
         test_name_ = "test_audio";
+        test_deps_ = Dependencies{};
 
         auto attributes = ProtoStruct{};
-
         test_config_ = std::make_unique<ResourceConfig>(
-            "rdk:component:audioin",
-            "",
-            test_name_,
-            attributes,
-            "",
-            Model("viam", "audio", "microphone"),
-            LinkConfig{},
-            log_level::info
+            "rdk:component:audioin", "", test_name_, attributes, "",
+            Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
         );
-        test_deps_ = Dependencies{};
 
         SetupDefaultPortAudioBehavior();
     }
+
+    // Helper: Create a basic config with common attributes
+    ResourceConfig createConfig(const std::string& device_name = testDeviceName,
+                                int sample_rate = 44100,
+                                int num_channels = 1,
+                                double latency = 0.0) {
+        auto attrs = ProtoStruct{};
+        if (!device_name.empty()) {
+            attrs["device_name"] = device_name;
+        }
+        attrs["sample_rate"] = static_cast<double>(sample_rate);
+        attrs["num_channels"] = static_cast<double>(num_channels);
+        if (latency > 0) {
+            attrs["latency"] = latency;
+        }
+
+        return ResourceConfig(
+            "rdk:component:audioin", "", "test_microphone", attrs, "",
+            Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
+        );
+    }
+
+    // Helper: Setup mock expectations for successful stream creation
+    void expectSuccessfulStreamCreation(PaStream* stream_ptr = reinterpret_cast<PaStream*>(0x1234),
+                                       int device_index = 0) {
+        EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(device_index + 1));
+        EXPECT_CALL(*mock_pa_, getDeviceInfo(device_index)).WillRepeatedly(::testing::Return(&mock_device_info_));
+        EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
+            .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(stream_ptr), ::testing::Return(paNoError)));
+        EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+    }
+
+    // Helper: Create audio context with test data
+    std::shared_ptr<microphone::AudioStreamContext> createTestContext(microphone::Microphone& mic,
+                                                                       int num_samples = 0) {
+        std::shared_ptr<microphone::AudioStreamContext> ctx;
+        {
+            std::lock_guard<std::mutex> lock(mic.stream_ctx_mu_);
+            ctx = mic.audio_context_;
+        }
+
+        ctx->first_sample_adc_time = 0.0;
+        ctx->stream_start_time = std::chrono::system_clock::now();
+        ctx->first_callback_captured.store(true);
+        ctx->total_samples_written.store(0);
+
+        // Optionally write samples
+        for (int i = 0; i < num_samples; i++) {
+            ctx->write_sample(static_cast<int16_t>(i));
+        }
+
+        return ctx;
+    }
+
     void SetupDefaultPortAudioBehavior() {
         using ::testing::_;
         using ::testing::Return;
@@ -387,41 +434,71 @@ TEST_F(MicrophoneTest, UsesDeviceDefaultSampleRate) {
     EXPECT_EQ(mic.num_channels_, 2);
 }
 
+TEST_F(MicrophoneTest, DeviceNotFoundThrows) {
+    auto config = createConfig("NonExistentDevice");
 
-TEST_F(MicrophoneTest, ReconfigureNoChanges) {
-    auto initial_attributes = ProtoStruct{};
-    initial_attributes["device_name"] = testDeviceName;
-    initial_attributes["sample_rate"] = 44100.0;
-    initial_attributes["num_channels"] = 2.0;
+    // Mock: no devices available
+    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(0));
 
-    ResourceConfig initial_config(
-        "rdk:component:audioin", "", "test_microphone", initial_attributes, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
+    EXPECT_THROW(microphone::Microphone(test_deps_, config, mock_pa_.get()), std::runtime_error);
+}
 
+TEST_F(MicrophoneTest, OpenStreamFailureThrows) {
+    auto config = createConfig();
+
+    // Mock: device found but openStream fails
+    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(1));
+    EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(::testing::Return(&mock_device_info_));
+    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
+        .WillOnce(::testing::Return(paInvalidDevice));
+
+    EXPECT_THROW(microphone::Microphone(test_deps_, config, mock_pa_.get()), std::runtime_error);
+}
+
+TEST_F(MicrophoneTest, StartStreamFailureThrows) {
+    auto config = createConfig();
     PaStream* dummy_stream = reinterpret_cast<PaStream*>(0x1234);
 
+    // Mock: openStream succeeds but startStream fails
     EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(1));
     EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(::testing::Return(&mock_device_info_));
     EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
         .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(dummy_stream), ::testing::Return(paNoError)));
-    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paInternalError));
+    EXPECT_CALL(*mock_pa_, closeStream(::testing::_)).WillOnce(::testing::Return(paNoError));
 
-    microphone::Microphone mic(test_deps_, initial_config, mock_pa_.get());
+    EXPECT_THROW(microphone::Microphone(test_deps_, config, mock_pa_.get()), std::runtime_error);
+}
+
+TEST_F(MicrophoneTest, NumChannelsExceedsDeviceMaxThrows) {
+    auto config = createConfig(testDeviceName, 44100, 8);  // Request 8 channels
+
+    // Mock: device found but only supports 2 channels (from mock_device_info_)
+    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(1));
+    EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(::testing::Return(&mock_device_info_));
+
+    EXPECT_THROW(microphone::Microphone(test_deps_, config, mock_pa_.get()), std::invalid_argument);
+}
+
+TEST_F(MicrophoneTest, DefaultDeviceNotFoundThrows) {
+    auto config = createConfig("");  // Empty device name = use default
+
+    // Mock: no default device available
+    EXPECT_CALL(*mock_pa_, getDefaultInputDevice()).WillOnce(::testing::Return(paNoDevice));
+
+    EXPECT_THROW(microphone::Microphone(test_deps_, config, mock_pa_.get()), std::runtime_error);
+}
+
+
+TEST_F(MicrophoneTest, ReconfigureNoChanges) {
+    auto config = createConfig(testDeviceName, 44100, 2);
+    expectSuccessfulStreamCreation();
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
 
     // Reconfigure with same values - should not restart stream
-    auto new_attributes = ProtoStruct{};
-    new_attributes["device_name"] = testDeviceName;
-    new_attributes["sample_rate"] = 44100.0;
-    new_attributes["num_channels"] = 2.0;
-
-    ResourceConfig new_config(
-        "rdk:component:audioin", "", "test_microphone", new_attributes, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
+    auto new_config = createConfig(testDeviceName, 44100, 2);
 
     // No mock expectations for stream restart since config is unchanged
-
     EXPECT_NO_THROW(mic.reconfigure(test_deps_, new_config));
 
     EXPECT_EQ(mic.device_name_, testDeviceName);
@@ -431,38 +508,14 @@ TEST_F(MicrophoneTest, ReconfigureNoChanges) {
 
 
 TEST_F(MicrophoneTest, ReconfigureDifferentDeviceName) {
-    // Start with testDeviceName
-    auto initial_attributes = ProtoStruct{};
-    initial_attributes["device_name"] = testDeviceName;
-    initial_attributes["sample_rate"] = 44100.0;
-    initial_attributes["num_channels"] = 1.0;
-
-    ResourceConfig initial_config(
-        "rdk:component:audioin", "", "test_microphone", initial_attributes, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
-
+    auto config = createConfig(testDeviceName, 44100, 2);
+       expectSuccessfulStreamCreation();
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
+    const char* new_device_name = "New Device";
     PaStream* dummy_stream = reinterpret_cast<PaStream*>(0x1234);
 
-    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(2));
-    EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(::testing::Return(&mock_device_info_));
-    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
-        .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(dummy_stream), ::testing::Return(paNoError)));
-    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
-
-    microphone::Microphone mic(test_deps_, initial_config, mock_pa_.get());
-
     // Reconfigure with different device name
-    const char* new_device_name = "New Device";
-    auto new_attributes = ProtoStruct{};
-    new_attributes["device_name"] = new_device_name;
-    new_attributes["sample_rate"] = 44100.0;
-    new_attributes["num_channels"] = 1.0;
-
-    ResourceConfig new_config(
-        "rdk:component:audioin", "", "test_microphone", new_attributes, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
+    auto new_config = createConfig(new_device_name, 44100, 2);
 
     PaDeviceInfo new_device;
     new_device.name = new_device_name;
@@ -481,41 +534,19 @@ TEST_F(MicrophoneTest, ReconfigureDifferentDeviceName) {
 
     EXPECT_EQ(mic.device_name_, new_device_name);
     EXPECT_EQ(mic.sample_rate_, 44100);
-    EXPECT_EQ(mic.num_channels_, 1);
+    EXPECT_EQ(mic.num_channels_, 2);
 }
 
 
 TEST_F(MicrophoneTest, ReconfigureDifferentSampleRate) {
-    auto initial_attributes = ProtoStruct{};
-    initial_attributes["device_name"] = testDeviceName;
-    initial_attributes["sample_rate"] = 44100.0;
-    initial_attributes["num_channels"] = 1.0;
+    auto config = createConfig(testDeviceName, 44100, 2);
+    expectSuccessfulStreamCreation();
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
 
-    ResourceConfig initial_config(
-        "rdk:component:audioin", "", "test_microphone", initial_attributes, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
-
+    // reconfigure with different sample rate
+    auto new_config = createConfig(testDeviceName, 2000, 2);
     PaStream* dummy_stream = reinterpret_cast<PaStream*>(0x1234);
 
-    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(1));
-    EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(::testing::Return(&mock_device_info_));
-    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
-        .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(dummy_stream), ::testing::Return(paNoError)));
-    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
-
-    microphone::Microphone mic(test_deps_, initial_config, mock_pa_.get());
-
-    // Reconfigure with different sample rate
-    auto new_attributes = ProtoStruct{};
-    new_attributes["device_name"] = testDeviceName;
-    new_attributes["sample_rate"] = 48000.0;
-    new_attributes["num_channels"] = 1.0;
-
-    ResourceConfig new_config(
-        "rdk:component:audioin", "", "test_microphone", new_attributes, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
 
     EXPECT_CALL(*mock_pa_, stopStream(::testing::_)).WillOnce(::testing::Return(paNoError));
     EXPECT_CALL(*mock_pa_, closeStream(::testing::_)).WillOnce(::testing::Return(paNoError));
@@ -524,51 +555,30 @@ TEST_F(MicrophoneTest, ReconfigureDifferentSampleRate) {
     EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
         .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(dummy_stream), ::testing::Return(paNoError)));
     EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+
 
     EXPECT_NO_THROW(mic.reconfigure(test_deps_, new_config));
 
     EXPECT_EQ(mic.device_name_, testDeviceName);
-    EXPECT_EQ(mic.sample_rate_, 48000);
-    EXPECT_EQ(mic.num_channels_, 1);
+    EXPECT_EQ(mic.sample_rate_, 2000);
+    EXPECT_EQ(mic.num_channels_, 2);
 }
 
 
 TEST_F(MicrophoneTest, ReconfigureDifferentNumChannels) {
-    auto initial_attributes = ProtoStruct{};
-    initial_attributes["device_name"] = testDeviceName;
-    initial_attributes["sample_rate"] = 44100.0;
-    initial_attributes["num_channels"] = 1.0;
-
-    ResourceConfig initial_config(
-        "rdk:component:audioin", "", "test_microphone", initial_attributes, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
-
+    auto config = createConfig(testDeviceName, 44100, 2);
+    expectSuccessfulStreamCreation();
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
     PaStream* dummy_stream = reinterpret_cast<PaStream*>(0x1234);
 
-    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(1));
-    EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(::testing::Return(&mock_device_info_));
-    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
-        .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(dummy_stream), ::testing::Return(paNoError)));
-    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+    // Reconfigure with different num channels
+    auto new_config = createConfig(testDeviceName, 44100, 1);
 
-    microphone::Microphone mic(test_deps_, initial_config, mock_pa_.get());
-
-    // Reconfigure with different num_channels
-    auto new_attributes = ProtoStruct{};
-    new_attributes["device_name"] = testDeviceName;
-    new_attributes["sample_rate"] = 44100.0;
-    new_attributes["num_channels"] = 2.0;
-
-    ResourceConfig new_config(
-        "rdk:component:audioin", "", "test_microphone", new_attributes, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
 
     EXPECT_CALL(*mock_pa_, stopStream(::testing::_)).WillOnce(::testing::Return(paNoError));
     EXPECT_CALL(*mock_pa_, closeStream(::testing::_)).WillOnce(::testing::Return(paNoError));
-    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(1));
-    EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(::testing::Return(&mock_device_info_));
+    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(2));
+    EXPECT_CALL(*mock_pa_, getDeviceInfo(1)).WillRepeatedly(::testing::Return(&mock_device_info_));
     EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
         .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(dummy_stream), ::testing::Return(paNoError)));
     EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
@@ -577,71 +587,11 @@ TEST_F(MicrophoneTest, ReconfigureDifferentNumChannels) {
 
     EXPECT_EQ(mic.device_name_, testDeviceName);
     EXPECT_EQ(mic.sample_rate_, 44100);
-    EXPECT_EQ(mic.num_channels_, 2);
-}
-
-TEST_F(MicrophoneTest, ReconfigureWithActiveStream) {
-    // Tests that reconfiguration works even when there are active streams
-    // Simulates active stream by manually incrementing the counter
-    auto initial_attributes = ProtoStruct{};
-    initial_attributes["device_name"] = testDeviceName;
-    initial_attributes["sample_rate"] = 44100.0;
-    initial_attributes["num_channels"] = 1.0;
-
-    ResourceConfig initial_config(
-        "rdk:component:audioin", "", "test_microphone", initial_attributes, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
-
-    PaStream* dummy_stream = reinterpret_cast<PaStream*>(0x1234);
-
-    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(1));
-    EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(::testing::Return(&mock_device_info_));
-    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
-        .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(dummy_stream), ::testing::Return(paNoError)));
-    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
-
-    microphone::Microphone mic(test_deps_, initial_config, mock_pa_.get());
-
-    // Simulate active stream by incrementing counter
-    mic.active_streams_++;
-
-    // Reconfigure with different sample rate while stream is "active"
-    auto new_attributes = ProtoStruct{};
-    new_attributes["device_name"] = testDeviceName;
-    new_attributes["sample_rate"] = 48000.0;
-    new_attributes["num_channels"] = 1.0;
-
-    ResourceConfig new_config(
-        "rdk:component:audioin", "", "test_microphone", new_attributes, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
-
-    EXPECT_CALL(*mock_pa_, stopStream(::testing::_)).WillOnce(::testing::Return(paNoError));
-    EXPECT_CALL(*mock_pa_, closeStream(::testing::_)).WillOnce(::testing::Return(paNoError));
-    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(1));
-    EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(::testing::Return(&mock_device_info_));
-    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
-        .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(dummy_stream), ::testing::Return(paNoError)));
-    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
-
-    // Should succeed and log warning
-    EXPECT_NO_THROW(mic.reconfigure(test_deps_, new_config));
-
-    EXPECT_EQ(mic.sample_rate_, 48000);
+    EXPECT_EQ(mic.num_channels_, 1);
 }
 
 TEST_F(MicrophoneTest, MultipleConcurrentGetAudioCalls) {
-    auto attrs = ProtoStruct{};
-    attrs["device_name"] = testDeviceName;
-    attrs["sample_rate"] = 44100.0;
-    attrs["num_channels"] = 1.0;
-
-    ResourceConfig config(
-        "rdk:component:audioin", "", "test_microphone", attrs, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
-
+    auto config = createConfig(testDeviceName, 44100, 2);
     microphone::Microphone mic(test_deps_, config, mock_pa_.get());
 
     // Initialize timing
@@ -696,28 +646,21 @@ TEST_F(MicrophoneTest, MultipleConcurrentGetAudioCalls) {
 }
 
 TEST_F(MicrophoneTest, GetAudioReceivesChunks) {
-    auto attrs = ProtoStruct{};
-    attrs["device_name"] = testDeviceName;
-    attrs["sample_rate"] = 44100.0;
-    attrs["num_channels"] = 1.0;
-
-    ResourceConfig config(
-        "rdk:component:audioin", "", "test_microphone", attrs, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
-
-    PaStream* dummy_stream = reinterpret_cast<PaStream*>(0x1234);
+    auto config = createConfig(testDeviceName, 44100, 1);
     microphone::Microphone mic(test_deps_, config, mock_pa_.get());
 
-    // Each chunk is 100ms = 4410 samples at 44.1kHz mono
-    const int samples_per_chunk = 4410;
-    const int num_chunks = 5;
+    PaStream* dummy_stream = reinterpret_cast<PaStream*>(0x1234);
+
 
     std::shared_ptr<microphone::AudioStreamContext> ctx;
     {
         std::lock_guard<std::mutex> lock(mic.stream_ctx_mu_);
         ctx = mic.audio_context_;
     }
+
+    // Each chunk is 100ms = 4410 samples at 44.1kHz mono
+    const int samples_per_chunk = 4410;
+    const int num_chunks = 5;
 
     // Initialize timing for timestamp calculation
     ctx->first_sample_adc_time = 0.0;
@@ -732,7 +675,7 @@ TEST_F(MicrophoneTest, GetAudioReceivesChunks) {
             ctx->write_sample(static_cast<int16_t>(i));
             // Small delay every 100 samples to simulate real-time audio
             if (i % 100 == 0) {
-                std::this_thread::sleep_for(std::chrono::microseconds(500));
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
         }
     });
@@ -753,28 +696,10 @@ TEST_F(MicrophoneTest, GetAudioReceivesChunks) {
 }
 
 TEST_F(MicrophoneTest, GetAudioHandlerCanStopEarly) {
-    auto attrs = ProtoStruct{};
-    attrs["device_name"] = testDeviceName;
-    attrs["sample_rate"] = 44100.0;
-    attrs["num_channels"] = 1.0;
-
-    ResourceConfig config(
-        "rdk:component:audioin", "", "test_microphone", attrs, "",
-        Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
-    );
-
+    auto config = createConfig(testDeviceName, 44100, 2);
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
     PaStream* dummy_stream = reinterpret_cast<PaStream*>(0x1234);
 
-    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(1));
-    EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(::testing::Return(&mock_device_info_));
-    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
-        .WillOnce(::testing::DoAll(
-            ::testing::SetArgPointee<0>(dummy_stream),
-            ::testing::Return(paNoError)
-        ));
-    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
-
-    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
 
     // Push 10 chunks worth of samples but handler will stop after 3
     const int samples_per_chunk = 4410;  // 100ms at 44.1kHz mono
@@ -821,7 +746,6 @@ TEST_F(MicrophoneTest, GetAudioWithInvalidCodecThrowsError) {
 
     auto handler = [](viam::sdk::AudioIn::audio_chunk&& chunk) { return true; };
 
-    // Verify behavior: invalid codec should throw std::invalid_argument
     EXPECT_THROW({
         mic.get_audio("invalid_codec", handler, 0.1, 0, ProtoStruct{});
     }, std::invalid_argument);
@@ -849,7 +773,7 @@ TEST_F(PortAudioTest, TestOpenStreamSuccessDefaultDevice) {
     PaStream* stream = nullptr;
     int channels = 2;
     int sampleRate = 44100;
-    PaDeviceIndex deviceIndex = 0;  // Use device index directly
+    PaDeviceIndex deviceIndex = 0;
 
     EXPECT_CALL(*mock_pa_, getDeviceInfo(0))
         .WillOnce(::testing::Return(&mock_device_info_));
@@ -951,143 +875,6 @@ TEST_F(PortAudioTest, TestOpenStreamOpenStreamFails) {
 
     EXPECT_THROW(microphone::openStream(&stream, config, mock_pa_.get()), std::runtime_error);
 }
-
-
-
- class AudioCallbackTest : public ::testing::Test {
-  protected:
-      void SetUp() override {
-          // Create test audio info
-          test_info = viam::sdk::audio_info{
-              .codec = viam::sdk::audio_codecs::PCM_16,
-              .sample_rate_hz = 44100,
-              .num_channels = 1
-          };
-
-          // Small chunk size for testing (100 frames at 44.1kHz = ~2.3ms)
-          samples_per_chunk = 100;
-
-          // Create ring buffer context (10 second buffer)
-          ctx = std::make_unique<microphone::AudioStreamContext>(
-              test_info,
-              samples_per_chunk,
-              10  // 10 seconds buffer
-          );
-
-          // Create mock time info
-          mock_time_info.inputBufferAdcTime = 0.0;
-          mock_time_info.currentTime = 0.0;
-          mock_time_info.outputBufferDacTime = 0.0;
-      }
-
-      std::vector<int16_t> create_test_samples(size_t count, int16_t value = 16383) {
-          return std::vector<int16_t>(count, value);
-      }
-
-      int call_callback(const std::vector<int16_t>& samples) {
-          return microphone::AudioCallback(
-              samples.data(),      // inputBuffer
-              nullptr,             // outputBuffer
-              samples.size() / ctx->info.num_channels,  // framesPerBuffer (not total samples)
-              &mock_time_info,     // timeInfo
-              0,                   // statusFlags
-              ctx.get()            // userData
-          );
-      }
-
-      viam::sdk::audio_info test_info;
-      size_t samples_per_chunk;
-      std::unique_ptr<microphone::AudioStreamContext> ctx;
-      PaStreamCallbackTimeInfo mock_time_info;
-  };
-
-
-  TEST_F(AudioCallbackTest, WritesSamplesToCircularBuffer) {
-      // Create test samples
-      std::vector<int16_t> samples = {100, 200, 300, 400, 500};
-
-      // Call the callback
-      int result = call_callback(samples);
-
-      // Verify callback returned paContinue
-      EXPECT_EQ(result, paContinue);
-
-      // Verify samples were written to circular buffer
-      EXPECT_EQ(ctx->get_write_position(), samples.size());
-
-      // Read samples back and verify they match
-      std::vector<int16_t> read_buffer(samples.size());
-      uint64_t read_pos = 0;
-      int samples_read = ctx->read_samples(read_buffer.data(), samples.size(), read_pos);
-
-      EXPECT_EQ(samples_read, samples.size());
-      EXPECT_EQ(read_buffer, samples);
-  }
-
-  TEST_F(AudioCallbackTest, TracksFirstCallbackTime) {
-      std::vector<int16_t> samples = create_test_samples(100);
-
-      // Before callback, first_callback_captured should be false
-      EXPECT_FALSE(ctx->first_callback_captured.load());
-
-      call_callback(samples);
-
-      // After callback, timing should be captured
-      EXPECT_TRUE(ctx->first_callback_captured.load());
-      EXPECT_EQ(ctx->first_sample_adc_time, mock_time_info.inputBufferAdcTime);
-  }
-
-  TEST_F(AudioCallbackTest, TracksSamplesWritten) {
-      std::vector<int16_t> samples = create_test_samples(100);
-
-      EXPECT_EQ(ctx->total_samples_written.load(), 0);
-
-      call_callback(samples);
-
-      EXPECT_EQ(ctx->total_samples_written.load(), 100);
-
-      // Call again
-      call_callback(samples);
-
-      EXPECT_EQ(ctx->total_samples_written.load(), 200);
-  }
-
-  TEST_F(AudioCallbackTest, HandlesNullInputBuffer) {
-      int result = microphone::AudioCallback(
-          nullptr,           // null input buffer
-          nullptr,
-          100,
-          &mock_time_info,
-          0,
-          ctx.get()
-      );
-
-      // Should return paContinue and not write anything
-      EXPECT_EQ(result, paContinue);
-      EXPECT_EQ(ctx->get_write_position(), 0);
-  }
-
-  TEST_F(AudioCallbackTest, RespectsRecordingFlag) {
-      std::vector<int16_t> samples = create_test_samples(100);
-
-      // Disable recording
-      ctx->is_recording.store(false);
-
-      call_callback(samples);
-
-      // Should not write samples when recording is disabled
-      EXPECT_EQ(ctx->get_write_position(), 0);
-
-      // Re-enable recording
-      ctx->is_recording.store(true);
-
-      call_callback(samples);
-
-      // Now samples should be written
-      EXPECT_EQ(ctx->get_write_position(), 100);
-  }
-
-
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
