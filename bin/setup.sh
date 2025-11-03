@@ -38,14 +38,19 @@ fi
 
 conan profile detect || echo "Conan is already installed"
 
-# Use local viam-cpp-sdk instead of cloning
-pushd ~/viam-cpp-sdk
-
-# Pull latest changes
-git pull || echo "Could not pull, continuing with current state"
+if [ ! -d "tmp_cpp_sdk/viam-cpp-sdk" ]; then
+  # Clone the C++ SDK repo
+  mkdir -p tmp_cpp_sdk
+  pushd tmp_cpp_sdk
+  git clone https://github.com/viamrobotics/viam-cpp-sdk.git
+  pushd viam-cpp-sdk
+else
+  pushd tmp_cpp_sdk
+  pushd viam-cpp-sdk
+fi
 
 # NOTE: If you change this version, also change it in the `conanfile.py` requirements
-# and in the Dockerfile
+git checkout releases/v0.21.0
 
 # Build the C++ SDK repo
 #
@@ -60,3 +65,5 @@ conan create . \
 
 # Cleanup
 popd  # viam-cpp-sdk
+popd # temp-cpp-sdk
+rm -rf tmp_cpp_sdk
