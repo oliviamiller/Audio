@@ -2,3 +2,4 @@ build/
 .DS_STORE
 venv/
 CMakeUserPresets.json
+build-conan/
