@@ -186,22 +186,18 @@ ConfigParams parseConfigAttributes(const viam::sdk::ResourceConfig& cfg) {
     auto attrs = cfg.attributes();
     ConfigParams params;
 
-    // Parse device name
     if (attrs.count("device_name")) {
         params.device_name = *attrs.at("device_name").get<std::string>();
     }
 
-    // Parse sample rate (optional)
     if (attrs.count("sample_rate")) {
         params.sample_rate = static_cast<int>(*attrs.at("sample_rate").get<double>());
     }
 
-    // Parse num_channels (optional)
     if (attrs.count("num_channels")) {
         params.num_channels = static_cast<int>(*attrs.at("num_channels").get<double>());
     }
 
-    // Parse latency in milliseconds (optional)
     if (attrs.count("latency")) {
         params.latency_ms = *attrs.at("latency").get<double>();
     }
@@ -410,9 +406,6 @@ void Microphone::get_audio(std::string const& codec,
         // Check if we have enough samples for a full chunk
         const uint64_t write_pos = stream_context->get_write_position();
         const uint64_t available_samples = write_pos - read_position;
-
-
-        VIAM_SDK_LOG(info) << "avaliable samples: " << available_samples;
 
         // Wait until we have a full chunk worth of samples
         if (available_samples < device_samples_per_chunk) {
