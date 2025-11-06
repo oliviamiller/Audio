@@ -1,5 +1,10 @@
 #include "microphone.hpp"
+#include "mp3_encoder.hpp"
 #include <thread>
+extern "C"
+{
+#include <libavcodec/avcodec.h>
+}
 
 namespace microphone {
 
@@ -19,6 +24,34 @@ Microphone::~Microphone() {
 }
 
 vsdk::Model Microphone::model("viam", "audio", "microphone");
+
+class StreamGuard {
+    std::mutex& mutex_;
+    int& counter_;
+public:
+    StreamGuard(std::mutex& m, int& c) : mutex_(m), counter_(c) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        counter_++;
+    }
+    ~StreamGuard() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        counter_--;
+    }
+};
+
+class MP3EncoderGuard {
+    MP3EncoderState& state_;
+public:
+    explicit MP3EncoderGuard(MP3EncoderState& state) : state_(state) {}
+
+    ~MP3EncoderGuard() {
+        if (state_.encoder_ctx) {
+            flush_mp3_encoder(state_);
+            cleanup_mp3_encoder(state_);
+        }
+    }
+};
+
 
 ConfigParams parseConfigAttributes(const viam::sdk::ResourceConfig& cfg) {
     auto attrs = cfg.attributes();
@@ -114,6 +147,37 @@ viam::sdk::ProtoStruct Microphone::do_command(const viam::sdk::ProtoStruct& comm
     return viam::sdk::ProtoStruct();
 }
 
+// Helper function to encode audio samples to the requested codec format
+static void encode_audio_chunk(
+    const std::string& codec,
+    const int16_t* samples,
+    int sample_count,
+    MP3EncoderState& mp3_state,
+    std::vector<uint8_t>& output_data)
+{
+    if (codec == vsdk::audio_codecs::PCM_32) {
+        // Convert int16 to int32 (left shift by 16 to preserve range)
+        output_data.resize(sample_count * sizeof(int32_t));
+        int32_t* output = reinterpret_cast<int32_t*>(output_data.data());
+        for (int i = 0; i < sample_count; i++) {
+            output[i] = static_cast<int32_t>(samples[i]) << 16;
+        }
+    } else if (codec == vsdk::audio_codecs::PCM_32_FLOAT) {
+        // Convert int16 to float32 (normalize to range -1.0 to 1.0)
+        output_data.resize(sample_count * sizeof(float));
+        float* output = reinterpret_cast<float*>(output_data.data());
+        for (int i = 0; i < sample_count; i++) {
+            output[i] = static_cast<float>(samples[i]) / 32768.0f;
+        }
+    } else if (codec == vsdk::audio_codecs::MP3) {
+        // Encode samples to MP3
+        encode_mp3_samples(mp3_state, samples, sample_count, output_data);
+    } else {  // pcm16
+        output_data.resize(sample_count * sizeof(int16_t));
+        std::memcpy(output_data.data(), samples, sample_count * sizeof(int16_t));
+    }
+}
+
 void Microphone::get_audio(std::string const& codec,
                            std::function<bool(vsdk::AudioIn::audio_chunk&& chunk)> const& chunk_handler,
                            double const& duration_seconds,
@@ -123,17 +187,16 @@ void Microphone::get_audio(std::string const& codec,
     //TODO: get audio starting from prev timestamp
 
     // Validate codec is supported
-    if (codec != vsdk::audio_codecs::PCM_16) {
+    if (codec != vsdk::audio_codecs::PCM_16 &&
+        codec != vsdk::audio_codecs::PCM_32 &&
+        codec != vsdk::audio_codecs::PCM_32_FLOAT &&
+        codec != vsdk::audio_codecs::MP3) {
         throw std::invalid_argument("Unsupported codec: " + codec +
-            ". Supported codecs: pcm16");
+            ". Supported codecs: pcm16, pcm32, pcm32f, mp3");
     }
 
-    VIAM_SDK_LOG(info) << "get_audio called with codec: " << codec;
-
-    {
-        std::lock_guard<std::mutex> lock(stream_ctx_mu_);
-        active_streams_++;
-    }
+    // guard to increment and decremnet the active stream count
+    StreamGuard stream_guard(stream_ctx_mu_, active_streams_);
 
     // Set duration timer
     auto start_time = std::chrono::steady_clock::time_point();
@@ -141,6 +204,24 @@ void Microphone::get_audio(std::string const& codec,
     bool timer_started = false;
 
     uint64_t sequence = 0;
+
+    // MP3 encoder state (persistent across chunks for this stream)
+    MP3EncoderState mp3_state;
+    MP3EncoderGuard mp3_guard(mp3_state);  // RAII: automatically flushes and cleans up on exit
+
+    // Initialize MP3 encoder if needed
+    if (codec == vsdk::audio_codecs::MP3) {
+        // Get stream config
+        int encoder_sample_rate;
+        int encoder_num_channels;
+        {
+            std::lock_guard<std::mutex> lock(stream_ctx_mu_);
+            encoder_sample_rate = sample_rate_;
+            encoder_num_channels = num_channels_;
+        }
+
+        initialize_mp3_encoder(mp3_state, encoder_sample_rate, encoder_num_channels);
+    }
 
     // Track which context we're reading from to detect any device config changes
     std::shared_ptr<AudioStreamContext> stream_context;
@@ -213,8 +294,15 @@ void Microphone::get_audio(std::string const& codec,
         }
 
         vsdk::AudioIn::audio_chunk chunk;
-        chunk.audio_data.resize(samples_read * sizeof(int16_t));
-        std::memcpy(chunk.audio_data.data(), temp_buffer.data(), samples_read * sizeof(int16_t));
+
+        // Convert from int16 (captured format) to requested codec
+        encode_audio_chunk(codec, temp_buffer.data(), samples_read, mp3_state, chunk.audio_data);
+
+        // Skip sending empty chunks (can happen with MP3 due to encoder buffering)
+        if (codec == vsdk::audio_codecs::MP3 && chunk.audio_data.empty()) {
+            VIAM_SDK_LOG(debug) << "Skipping empty MP3 chunk (encoder buffering)";
+            continue;
+        }
 
         chunk.info.codec = codec;
         chunk.info.sample_rate_hz = stream_sample_rate;
@@ -240,27 +328,23 @@ void Microphone::get_audio(std::string const& codec,
 
         if (!chunk_handler(std::move(chunk))) {
             VIAM_RESOURCE_LOG(info) << "Chunk handler returned false, stopping";
-            {
-                std::lock_guard<std::mutex> lock(stream_ctx_mu_);
-                active_streams_--;
-            }
+            // MP3EncoderGuard will automatically flush and cleanup on return
             return;
         }
     }
 
     VIAM_SDK_LOG(info) << "get_audio stream completed";
-
-    {
-        std::lock_guard<std::mutex> lock(stream_ctx_mu_);
-        active_streams_--;
-    }
+    // MP3EncoderGuard and StreamGuard will automatically cleanup when function exits
 }
 
 viam::sdk::audio_properties Microphone::get_properties(const viam::sdk::ProtoStruct& extra){
     viam::sdk::audio_properties props;
 
     props.supported_codecs = {
-        vsdk::audio_codecs::PCM_16
+        vsdk::audio_codecs::PCM_16,
+        vsdk::audio_codecs::PCM_32,
+        vsdk::audio_codecs::PCM_32_FLOAT,
+        vsdk::audio_codecs::MP3
     };
     std::lock_guard<std::mutex> lock(stream_ctx_mu_);
     props.sample_rate_hz = sample_rate_;

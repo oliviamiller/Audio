@@ -43,6 +43,7 @@ class orbbec(ConanFile):
         # NOTE: If you update the `viam-cpp-sdk` dependency here, it
         # should also be updated in `bin/setup.{sh,ps1}`.
         self.requires("viam-cpp-sdk/0.21.0")
+        self.requires("ffmpeg/8.0")
 
     def generate(self):
         tc = CMakeToolchain(self)

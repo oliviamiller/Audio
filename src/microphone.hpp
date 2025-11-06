@@ -7,6 +7,7 @@
 #include "portaudio.h"
 #include "portaudio.hpp"
 #include "audio_stream.hpp"
+#include "mp3_encoder.hpp"
 #include <memory>
 #include <string>
 #include <vector>
