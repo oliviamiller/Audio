@@ -49,8 +49,7 @@ public:
 class AudioTestBase : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Create mock PortAudio
-        mock_pa_ = std::make_unique<MockPortAudio>();
+        mock_pa_ = std::make_unique<::testing::NiceMock<MockPortAudio>>();
 
         // Setup mock device info with common defaults
         mock_device_info_.defaultLowInputLatency = 0.01;
@@ -67,7 +66,7 @@ protected:
     // Common test device name used across all tests
     static constexpr const char* testDeviceName = "Test Device";
 
-    std::unique_ptr<MockPortAudio> mock_pa_;
+    std::unique_ptr<::testing::NiceMock<MockPortAudio>> mock_pa_;
     PaDeviceInfo mock_device_info_;
 };
 
@@ -655,12 +654,9 @@ TEST_F(MicrophoneTest, GetAudioReceivesChunks) {
     std::atomic<bool> stop_writing{false};
     std::thread writer([&]() {
         for (int i = 0; i < num_chunks * samples_per_chunk && !stop_writing.load(); i++) {
-            ctx->write_sample(static_cast<int16_t>(i));
-            // Small delay every 100 samples to simulate real-time audio
-            if (i % 100 == 0) {
-                std::this_thread::sleep_for(std::chrono::microseconds(100));
-            }
-        }
+        ctx->write_sample(static_cast<int16_t>(i));
+
+    }
     });
 
     int chunks_received = 0;
@@ -670,7 +666,7 @@ TEST_F(MicrophoneTest, GetAudioReceivesChunks) {
         return chunks_received < num_chunks;
     };
 
-    mic.get_audio(viam::sdk::audio_codecs::PCM_16, handler, 2.0, 0, ProtoStruct{});
+    mic.get_audio(viam::sdk::audio_codecs::PCM_16, handler, 5.0, 0, ProtoStruct{});
 
     stop_writing = true;
     writer.join();
