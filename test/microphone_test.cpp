@@ -641,15 +641,6 @@ TEST_F(MicrophoneTest, GetAudioReceivesChunks) {
     ctx->first_callback_captured.store(true);
     ctx->total_samples_written.store(0);
 
-    // Write samples in background thread while get_audio runs
-    std::atomic<bool> stop_writing{false};
-    std::thread writer([&]() {
-        for (int i = 0; i < num_chunks * samples_per_chunk && !stop_writing.load(); i++) {
-        ctx->write_sample(static_cast<int16_t>(i));
-
-    }
-    });
-
     int chunks_received = 0;
     auto handler = [&](viam::sdk::AudioIn::audio_chunk&& chunk) {
         chunks_received++;
@@ -657,10 +648,18 @@ TEST_F(MicrophoneTest, GetAudioReceivesChunks) {
         return chunks_received < num_chunks;
     };
 
-    mic.get_audio(viam::sdk::audio_codecs::PCM_16, handler, 5.0, 0, ProtoStruct{});
+    std::thread reader([&]() {
+      mic.get_audio(viam::sdk::audio_codecs::PCM_16, handler, 5.0, 0, ProtoStruct{});
+    });
 
-    stop_writing = true;
-    writer.join();
+    // Give get_audio time to initialize its read position
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+     for (int i = 0; i < num_chunks * samples_per_chunk; i++) {
+        ctx->write_sample(static_cast<int16_t>(i));
+     }
+
+    reader.join();
 
     EXPECT_EQ(chunks_received, num_chunks);
 }
