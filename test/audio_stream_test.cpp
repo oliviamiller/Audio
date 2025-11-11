@@ -169,6 +169,24 @@ TEST_F(AudioStreamContextTest, ReadMoreThanAvailable) {
     EXPECT_EQ(read_pos, 50);
 }
 
+TEST_F(AudioStreamContextTest, ReadSampleNotYetWritten) {
+     // Write only 50 samples
+    const int num_samples = 50;
+    for (int i = 0; i < num_samples; i++) {
+        context_->write_sample(static_cast<int16_t>(i));
+    }
+
+    // trying to read from a position that hasn't been written yet
+    std::vector<int16_t> buffer(100);
+    uint64_t read_pos = 100;
+    int samples_read = context_->read_samples(buffer.data(), 100, read_pos);
+
+    // should get 0 samples
+    EXPECT_EQ(samples_read, 0);
+    EXPECT_EQ(read_pos, 100);
+}
+
+
 TEST_F(AudioStreamContextTest, CalculateSampleTimestamp) {
     // Set up the baseline time
     context_->first_sample_adc_time = 1000.0;

@@ -294,7 +294,7 @@ std::vector<viam::sdk::GeometryConfig> Microphone::get_geometries(const viam::sd
 
 void Microphone::setupStreamFromConfig(const ConfigParams& params) {
     audio::portaudio::RealPortAudio real_pa;
-    audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
 
     // Determine device and get device info
     std::string new_device_name = params.device_name;
@@ -432,9 +432,9 @@ void Microphone::setupStreamFromConfig(const ConfigParams& params) {
 }
 
 
-void startPortAudio(audio::portaudio::PortAudioInterface* pa) {
+void startPortAudio(const audio::portaudio::PortAudioInterface* pa) {
     audio::portaudio::RealPortAudio real_pa;
-    audio::portaudio::PortAudioInterface& audio_interface = pa ? *pa : real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa ? *pa : real_pa;
 
     PaError err = audio_interface.initialize();
     if (err != 0) {
@@ -449,6 +449,10 @@ void startPortAudio(audio::portaudio::PortAudioInterface* pa) {
 
       for (int i = 0; i < numDevices; i++) {
           const PaDeviceInfo* info = Pa_GetDeviceInfo(i);
+          if (!info) {
+             VIAM_SDK_LOG(error) << "failed to get device info for " << i+1 << "th device";
+             continue;
+          }
           if (info->maxInputChannels > 0) {
               VIAM_SDK_LOG(info) << info->name << " default sample rate: " << info->defaultSampleRate
               << "max input channels: " << info->maxInputChannels;
@@ -458,7 +462,7 @@ void startPortAudio(audio::portaudio::PortAudioInterface* pa) {
 
 void Microphone::openStream(PaStream** stream) {
     audio::portaudio::RealPortAudio real_pa;
-    audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
 
     VIAM_SDK_LOG(debug) << "Opening stream for device '" << device_name_
                          << "' (index " << device_index_ << ")"
@@ -519,7 +523,7 @@ void Microphone::openStream(PaStream** stream) {
 
 void Microphone::startStream(PaStream* stream) {
     audio::portaudio::RealPortAudio real_pa;
-    audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
 
     PaError err = audio_interface.startStream(stream);
     if (err != paNoError) {
@@ -529,7 +533,7 @@ void Microphone::startStream(PaStream* stream) {
     }
 }
 
-PaDeviceIndex findDeviceByName(const std::string& name, audio::portaudio::PortAudioInterface& pa) {
+PaDeviceIndex findDeviceByName(const std::string& name, const audio::portaudio::PortAudioInterface& pa) {
     int deviceCount = pa.getDeviceCount();
      if (deviceCount < 0) {
           return paNoDevice;
@@ -555,7 +559,7 @@ PaDeviceIndex findDeviceByName(const std::string& name, audio::portaudio::PortAu
 
 void Microphone::shutdownStream(PaStream* stream) {
     audio::portaudio::RealPortAudio real_pa;
-    audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
 
     PaError err = audio_interface.stopStream(stream);
     if (err < 0) {

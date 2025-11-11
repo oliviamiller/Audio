@@ -41,8 +41,8 @@ struct ActiveStreamConfig {
 };
 
 ConfigParams parseConfigAttributes(const viam::sdk::ResourceConfig& cfg);
-PaDeviceIndex findDeviceByName(const std::string& name, audio::portaudio::PortAudioInterface& pa);
-void startPortAudio(audio::portaudio::PortAudioInterface* pa = nullptr);
+PaDeviceIndex findDeviceByName(const std::string& name, const audio::portaudio::PortAudioInterface& pa);
+void startPortAudio(const audio::portaudio::PortAudioInterface* pa = nullptr);
 
 
 class Microphone final : public viam::sdk::AudioIn, public viam::sdk::Reconfigurable {
@@ -56,7 +56,6 @@ public:
 
     viam::sdk::ProtoStruct do_command(const viam::sdk::ProtoStruct& command);
 
-    // Get audio stream
     void get_audio(std::string const& codec,
                    std::function<bool(vsdk::AudioIn::audio_chunk&& chunk)> const& chunk_handler,
                    double const& duration_seconds,
@@ -84,12 +83,14 @@ public:
     double latency_;
     static vsdk::Model model;
 
-    // The mutex protects the stream and context pointer
+    // The mutex protects the stream, context, and the active streams counter
     std::mutex stream_ctx_mu_;
     PaStream* stream_;
-    std::shared_ptr<AudioStreamContext> audio_context_;  // shared_ptr allows safe reconfiguration
-    audio::portaudio::PortAudioInterface* pa_;
-    int active_streams_;  // Count of active get_audio calls
+    std::shared_ptr<AudioStreamContext> audio_context_;
+    // This is null in production and used for testing to inject the mock portaudio functions
+    const audio::portaudio::PortAudioInterface* pa_;
+    // Count of active get_audio calls
+    int active_streams_;
 };
 
 

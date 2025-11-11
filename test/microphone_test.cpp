@@ -25,23 +25,23 @@ using namespace audio;
 // Mock PortAudio interface
 class MockPortAudio : public audio::portaudio::PortAudioInterface {
 public:
-      MOCK_METHOD(PaError, initialize, (), (override));
-      MOCK_METHOD(PaDeviceIndex, getDefaultInputDevice, (), (override));
-      MOCK_METHOD(PaDeviceIndex, getDefaultOutputDevice, (), (override));
-      MOCK_METHOD(const PaDeviceInfo*, getDeviceInfo, (PaDeviceIndex device), (override));
+      MOCK_METHOD(PaError, initialize, (), (const, override));
+      MOCK_METHOD(PaDeviceIndex, getDefaultInputDevice, (), (const, override));
+      MOCK_METHOD(PaDeviceIndex, getDefaultOutputDevice, (), (const, override));
+      MOCK_METHOD(const PaDeviceInfo*, getDeviceInfo, (PaDeviceIndex device), (const, override));
       MOCK_METHOD(PaError, openStream, (PaStream** stream, const PaStreamParameters* inputParameters,
                                         const PaStreamParameters* outputParameters, double sampleRate,
                                         unsigned long framesPerBuffer, PaStreamFlags streamFlags,
-                                        PaStreamCallback* streamCallback, void* userData), (override));
-      MOCK_METHOD(PaError, startStream, (PaStream* stream), (override));
-      MOCK_METHOD(PaError, terminate, (), (override));
-      MOCK_METHOD(PaError, stopStream, (PaStream* stream), (override));
-      MOCK_METHOD(PaError, closeStream, (PaStream* stream), (override));
-      MOCK_METHOD(PaDeviceIndex, getDeviceCount, (), (override));
-      MOCK_METHOD(PaStreamInfo*, getStreamInfo, (PaStream* stream), (override));
+                                        PaStreamCallback* streamCallback, void* userData), (const, override));
+      MOCK_METHOD(PaError, startStream, (PaStream* stream), (const, override));
+      MOCK_METHOD(PaError, terminate, (), (const, override));
+      MOCK_METHOD(PaError, stopStream, (PaStream* stream), (const, override));
+      MOCK_METHOD(PaError, closeStream, (PaStream* stream), (const, override));
+      MOCK_METHOD(PaDeviceIndex, getDeviceCount, (), (const, override));
+      MOCK_METHOD(PaStreamInfo*, getStreamInfo, (PaStream* stream), (const, override));
       MOCK_METHOD(PaError, isFormatSupported, (const PaStreamParameters* inputParameters,
                                                const PaStreamParameters* outputParameters,
-                                               double sampleRate), (override));
+                                               double sampleRate), (const, override));
   };
 
 // Base test fixture with common PortAudio mock setup
