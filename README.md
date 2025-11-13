@@ -118,6 +118,34 @@ All audio data uses **little-endian** byte order. The specific format depends on
 - **Microphone (`get_audio`)**: Returns audio data in interleaved format
 - **Speaker (`play`)**: Expects audio data in interleaved format
 
+### Reconfiguration Behavior
+
+The microphone component supports reconfiguration - you can change stream attributes without restarting the audio stream RPC calls. When you reconfigure:
+
+- Active `get_audio()` calls will **automatically transition** to the new configuration
+- There may be a **brief gap in audio** during the transition
+
+#### Important Considerations
+
+1. **Writing to fixed-format files (WAV, etc.)**
+   - WAV files have a fixed header with sample rate and channel count
+   - Changing `sample_rate` or `num_channels` mid-stream will corrupt the file
+   - **Solution:** Stop recording, save the file, then reconfigure and start a new file
+
+2. **During active audio encoding**
+   - If you're encoding the streamed audio (e.g., to OPUS, AAC), changing `sample_rate` or `num_channels` will break the initialized encoder
+   - **Solution:**: Reinitialize the encoder when reconfigurations occur
+
+**Safe to reconfigure:**
+- Changing `device_name` to switch microphones
+- Adjusting `latency` for performance tuning
+- Between recording sessions
+- When streaming raw PCM chunks that are processed independently
+
+**Clients should:**
+- Monitor the `audio_info` field in each audio chunk
+- Detect when `sample_rate` or `num_channels` changes
+- Handle the transition appropriately
 
 ## Setup
 ```bash
