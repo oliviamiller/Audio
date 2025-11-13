@@ -122,8 +122,8 @@ All audio data uses **little-endian** byte order. The specific format depends on
 
 The microphone component supports reconfiguration - you can change stream attributes without restarting the audio stream RPC calls. When you reconfigure:
 
-- Active `get_audio()` calls will **automatically transition** to the new configuration
-- There may be a **brief gap in audio** during the transition
+- Active `get_audio()` calls will automatically transition to the new configuration
+- There may be a brief gap in audio during the transition
 
 #### Important Considerations
 
@@ -134,13 +134,13 @@ The microphone component supports reconfiguration - you can change stream attrib
 
 2. **During active audio encoding**
    - If you're encoding the streamed audio (e.g., to OPUS, AAC), changing `sample_rate` or `num_channels` will break the initialized encoder
-   - **Solution:**: Reinitialize the encoder when reconfigurations occur
+   - **Solution:** Reinitialize the encoder when reconfigurations occur
 
-**Safe to reconfigure:**
+**No client-side handling required:**
+- When streaming audio chunks that are processed independently
 - Changing `device_name` to switch microphones
 - Adjusting `latency` for performance tuning
-- Between recording sessions
-- When streaming raw PCM chunks that are processed independently
+- Between `get_audio` RPC calls
 
 **Clients should:**
 - Monitor the `audio_info` field in each audio chunk
