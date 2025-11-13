@@ -563,6 +563,55 @@ TEST_F(MicrophoneTest, ReconfigureDifferentNumChannels) {
     EXPECT_EQ(mic.num_channels_, 1);
 }
 
+TEST_F(MicrophoneTest, ReconfigureChangesAudioContext) {
+    auto config = createConfig(testDeviceName, 44100, 1);
+    expectSuccessfulStreamCreation();
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
+
+    // Get the initial audio_context_ pointer and verify its properties
+    auto initial_context = mic.audio_context_;
+    ASSERT_NE(initial_context, nullptr);
+    EXPECT_EQ(initial_context->info.sample_rate_hz, 44100);
+    EXPECT_EQ(initial_context->info.num_channels, 1);
+    EXPECT_EQ(initial_context->info.codec, viam::sdk::audio_codecs::PCM_16);
+
+    // Write some samples to the initial context
+    for (int i = 0; i < 100; i++) {
+        initial_context->write_sample(static_cast<int16_t>(i));
+    }
+    EXPECT_EQ(initial_context->get_write_position(), 100);
+
+    // Reconfigure with different sample rate and channels
+    auto new_config = createConfig(testDeviceName, 48000, 2);
+    PaStream* dummy_stream = reinterpret_cast<PaStream*>(0x1234);
+
+    // Setup expectations for reconfigure (shutdown old stream, open new stream)
+    EXPECT_CALL(*mock_pa_, stopStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+    EXPECT_CALL(*mock_pa_, closeStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillOnce(::testing::Return(1));
+    EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(::testing::Return(&mock_device_info_));
+    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
+        .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(dummy_stream), ::testing::Return(paNoError)));
+    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+
+    EXPECT_NO_THROW(mic.reconfigure(test_deps_, new_config));
+
+    // Verify that audio_context_ was replaced with a new instance
+    auto new_context = mic.audio_context_;
+    ASSERT_NE(new_context, nullptr);
+    EXPECT_NE(new_context, initial_context);
+
+    EXPECT_EQ(new_context->info.sample_rate_hz, 48000);
+    EXPECT_EQ(new_context->info.num_channels, 2);
+    EXPECT_EQ(new_context->info.codec, viam::sdk::audio_codecs::PCM_16);
+
+    // Verify new context starts fresh (no samples written yet)
+    EXPECT_EQ(new_context->get_write_position(), 0);
+
+    // Verify old context still exists with its data (kept alive by shared_ptr)
+    EXPECT_EQ(initial_context->get_write_position(), 100);
+}
+
 TEST_F(MicrophoneTest, MultipleConcurrentGetAudioCalls) {
     auto config = createConfig(testDeviceName, 44100, 2);
     microphone::Microphone mic(test_deps_, config, mock_pa_.get());

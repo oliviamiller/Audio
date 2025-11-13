@@ -185,31 +185,29 @@ void Microphone::get_audio(std::string const& codec,
     }
 
     while (std::chrono::steady_clock::now() < end_time) {
-        // Get current context (may change if config changes)
-        std::shared_ptr<AudioStreamContext> current_context;
-
+        // Check if audio_context_ changed (device reconfigured)
         {
             std::lock_guard<std::mutex> lock(stream_ctx_mu_);
-            current_context = audio_context_;
 
             // Detect context change (device reconfigured)
-            if (current_context != stream_context) {
+            if (audio_context_ != stream_context) {
                 if (stream_context != nullptr) {
-                    VIAM_SDK_LOG(info) << "Detected stream change (device reconfigure), resetting read position";
+                    VIAM_SDK_LOG(info) << "Detected stream change (device reconfigure)";
 
                     // Update sample rate and channels from new config
                     stream_sample_rate = sample_rate_;
                     stream_num_channels = num_channels_;
                     samples_per_chunk = (stream_sample_rate * CHUNK_DURATION_SECONDS) * stream_num_channels;
-                    read_position = current_context->get_write_position();
                 }
-                stream_context = current_context;
+                // Switch to new context and reset read position
+                stream_context = audio_context_;
+                read_position = stream_context->get_write_position();
                 // Brief gap in audio, but stream continues
             }
         }
 
         // Check if we have enough samples for a full chunk
-        uint64_t write_pos = current_context->get_write_position();
+        uint64_t write_pos = stream_context->get_write_position();
         uint64_t available_samples = write_pos - read_position;
 
         // Wait until we have a full chunk worth of samples
@@ -221,7 +219,7 @@ void Microphone::get_audio(std::string const& codec,
         std::vector<int16_t> temp_buffer(samples_per_chunk);
         uint64_t chunk_start_position = read_position;
         // Read exactly one chunk worth of samples
-        int samples_read = current_context->read_samples(temp_buffer.data(), samples_per_chunk, read_position);
+        int samples_read = stream_context->read_samples(temp_buffer.data(), samples_per_chunk, read_position);
 
         if (samples_read < samples_per_chunk) {
             // Shouldn't happen since we checked available_samples, but to be safe
@@ -240,11 +238,11 @@ void Microphone::get_audio(std::string const& codec,
 
         // Calculate timestamps based on sample position in stream
         chunk.start_timestamp_ns = calculate_sample_timestamp(
-            *current_context,
+            *stream_context,
             chunk_start_position
         );
         chunk.end_timestamp_ns = calculate_sample_timestamp(
-            *current_context,
+            *stream_context,
             chunk_start_position + samples_read
         );
 
@@ -397,11 +395,9 @@ void Microphone::setupStreamFromConfig(const ConfigParams& params) {
     auto new_audio_context = std::make_shared<AudioStreamContext>(info, samples_per_chunk);
 
     PaStream* old_stream = nullptr;
-    std::shared_ptr<AudioStreamContext> old_context;
     {
         std::lock_guard<std::mutex> lock(stream_ctx_mu_);
         old_stream = stream_;
-        old_context = audio_context_;  // keep old context alive for any current streams
     }
     if (old_stream) shutdownStream(old_stream);
 
