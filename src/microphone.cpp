@@ -103,9 +103,8 @@ void Microphone::reconfigure(const viam::sdk::Dependencies& deps, const viam::sd
         {
             std::lock_guard<std::mutex> lock(stream_ctx_mu_);
             if (active_streams_ > 0) {
-                VIAM_SDK_LOG(warn) << "[reconfigure] Reconfiguring with " << active_streams_
-                                   << " active stream(s). This may cause audio gaps or break "
-                                   << "encoded audio. Clients should monitor audio_info in chunks.";
+                VIAM_SDK_LOG(info) << "[reconfigure] Reconfiguring with " << active_streams_
+                                   << " active stream(s). See README for reconfiguration considerations.";
             }
         }
 
@@ -129,10 +128,12 @@ void Microphone::get_audio(std::string const& codec,
                            int64_t const& previous_timestamp,
                            const viam::sdk::ProtoStruct& extra) {
 
-    VIAM_SDK_LOG(info) << "get_audio called"
+    VIAM_SDK_LOG(info) << "get_audio called";
 
     // Validate codec is supported
     if (codec != vsdk::audio_codecs::PCM_16) {
+        VIAM_SDK_LOG(error) << "Unsupported codec: " + codec +
+            ". Supported codecs: pcm16";
         throw std::invalid_argument("Unsupported codec: " + codec +
             ". Supported codecs: pcm16");
     }
@@ -167,6 +168,10 @@ void Microphone::get_audio(std::string const& codec,
 
      // Initialize read position
     if (stream_context) {
+        if (previous_timestamp == 0) {
+            // Default: start from current write position (most recent audio)
+            read_position = stream_context->get_write_position();
+        } else {
             // Check if timestamp is before stream started
             auto stream_start_ns = std::chrono::time_point_cast<std::chrono::nanoseconds>(stream_context->stream_start_time);
             int64_t stream_start_timestamp_ns = stream_start_ns.time_since_epoch().count();
@@ -174,6 +179,7 @@ void Microphone::get_audio(std::string const& codec,
             if (previous_timestamp < stream_start_timestamp_ns) {
                 throw std::invalid_argument("Requested timestamp is before stream started");
             }
+
             // Start reading from the next sample after the previous timestamp
             // Note: If timestamp falls between samples, rounds down then advances
             uint64_t sample_number = stream_context->get_sample_number_from_timestamp(previous_timestamp);
@@ -192,11 +198,8 @@ void Microphone::get_audio(std::string const& codec,
                           << "Buffer only holds " << BUFFER_DURATION_SECONDS << " seconds of audio history.";
                 throw std::invalid_argument(stream.str());
             }
-        } else {
-            // Initialize read position to current write position to get most recent audio
-            read_position = stream_context->get_write_position();
         }
-
+    }
 
     // Get sample rate and channels - will be updated if context changes
     int stream_sample_rate = 0;
@@ -212,35 +215,34 @@ void Microphone::get_audio(std::string const& codec,
         buffer << "calculated invalid samples_per_chunk: " << samples_per_chunk <<
         " with sample rate: " << stream_sample_rate << " num channels: " << stream_num_channels
         << " chunk duration seconds: " << CHUNK_DURATION_SECONDS;
+        VIAM_SDK_LOG(error) << buffer.str();
         throw std::runtime_error(buffer.str());
     }
 
     while (std::chrono::steady_clock::now() < end_time) {
-        // Get current context (may change if config changes)
-        std::shared_ptr<AudioStreamContext> current_context;
-
+        // Check if audio_context_ changed (device reconfigured)
         {
             std::lock_guard<std::mutex> lock(stream_ctx_mu_);
-            current_context = audio_context_;
 
             // Detect context change (device reconfigured)
-            if (current_context != stream_context) {
+            if (audio_context_ != stream_context) {
                 if (stream_context != nullptr) {
-                    VIAM_SDK_LOG(info) << "Detected stream change (device reconfigure), resetting read position";
+                    VIAM_SDK_LOG(info) << "Detected stream change (device reconfigure)";
 
                     // Update sample rate and channels from new config
                     stream_sample_rate = sample_rate_;
                     stream_num_channels = num_channels_;
                     samples_per_chunk = (stream_sample_rate * CHUNK_DURATION_SECONDS) * stream_num_channels;
-                    read_position = current_context->get_write_position();
                 }
-                stream_context = current_context;
+                // Switch to new context and reset read position
+                stream_context = audio_context_;
+                read_position = stream_context->get_write_position();
                 // Brief gap in audio, but stream continues
             }
         }
 
         // Check if we have enough samples for a full chunk
-        uint64_t write_pos = current_context->get_write_position();
+        uint64_t write_pos = stream_context->get_write_position();
         uint64_t available_samples = write_pos - read_position;
 
         // Wait until we have a full chunk worth of samples
@@ -252,7 +254,7 @@ void Microphone::get_audio(std::string const& codec,
         std::vector<int16_t> temp_buffer(samples_per_chunk);
         uint64_t chunk_start_position = read_position;
         // Read exactly one chunk worth of samples
-        int samples_read = current_context->read_samples(temp_buffer.data(), samples_per_chunk, read_position);
+        int samples_read = stream_context->read_samples(temp_buffer.data(), samples_per_chunk, read_position);
 
         if (samples_read < samples_per_chunk) {
             // Shouldn't happen since we checked available_samples, but to be safe
@@ -270,8 +272,8 @@ void Microphone::get_audio(std::string const& codec,
         chunk.sequence_number = sequence++;
 
         // Calculate timestamps based on sample position in stream
-        chunk.start_timestamp_ns = current_context->calculate_sample_timestamp(chunk_start_position);
-        chunk.end_timestamp_ns = current_context->calculate_sample_timestamp(chunk_start_position + samples_read);
+        chunk.start_timestamp_ns = stream_context->calculate_sample_timestamp(chunk_start_position);
+        chunk.end_timestamp_ns = stream_context->calculate_sample_timestamp(chunk_start_position + samples_read);
 
         // Start duration timer after first chunk arrives
         if (!timer_started && duration_seconds > 0) {
@@ -319,7 +321,7 @@ std::vector<viam::sdk::GeometryConfig> Microphone::get_geometries(const viam::sd
 
 void Microphone::setupStreamFromConfig(const ConfigParams& params) {
     audio::portaudio::RealPortAudio real_pa;
-    audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
 
     // Determine device and get device info
     std::string new_device_name = params.device_name;
@@ -329,13 +331,16 @@ void Microphone::setupStreamFromConfig(const ConfigParams& params) {
     if (new_device_name.empty()) {
         device_index = audio_interface.getDefaultInputDevice();
         if (device_index == paNoDevice) {
+            VIAM_SDK_LOG(error) << "[setupStreamFromConfig] No default input device found";
             throw std::runtime_error("no default input device found");
         }
         deviceInfo = audio_interface.getDeviceInfo(device_index);
         if (!deviceInfo) {
-                throw std::runtime_error("failed to get device info for default device");
+            VIAM_SDK_LOG(error) << "[setupStreamFromConfig] Failed to get device info for default device";
+            throw std::runtime_error("failed to get device info for default device");
         }
         if (!deviceInfo->name) {
+            VIAM_SDK_LOG(error) << "[setupStreamFromConfig] Failed to get the name of the default device";
             throw std::runtime_error("failed to get the name of the default device");
         }
         new_device_name = deviceInfo->name;
@@ -343,11 +348,15 @@ void Microphone::setupStreamFromConfig(const ConfigParams& params) {
     } else {
         device_index = findDeviceByName(new_device_name, audio_interface);
         if (device_index == paNoDevice) {
+            VIAM_SDK_LOG(error) << "[setupStreamFromConfig] Audio input device with name '"
+                               << new_device_name << "' not found";
             throw std::runtime_error("audio input device with name " + new_device_name + " not found");
         }
         deviceInfo = audio_interface.getDeviceInfo(device_index);
         if (!deviceInfo) {
-                throw std::runtime_error("failed to get device info for device: " + new_device_name);
+            VIAM_SDK_LOG(error) << "[setupStreamFromConfig] Failed to get device info for device: "
+                               << new_device_name;
+            throw std::runtime_error("failed to get device info for device: " + new_device_name);
         }
     }
 
@@ -415,11 +424,9 @@ void Microphone::setupStreamFromConfig(const ConfigParams& params) {
     auto new_audio_context = std::make_shared<AudioStreamContext>(info, samples_per_chunk);
 
     PaStream* old_stream = nullptr;
-    std::shared_ptr<AudioStreamContext> old_context;
     {
         std::lock_guard<std::mutex> lock(stream_ctx_mu_);
         old_stream = stream_;
-        old_context = audio_context_;  // keep old context alive for any current streams
     }
     if (old_stream) shutdownStream(old_stream);
 
@@ -450,14 +457,15 @@ void Microphone::setupStreamFromConfig(const ConfigParams& params) {
 }
 
 
-void startPortAudio(audio::portaudio::PortAudioInterface* pa) {
+void startPortAudio(const audio::portaudio::PortAudioInterface* pa) {
     audio::portaudio::RealPortAudio real_pa;
-    audio::portaudio::PortAudioInterface& audio_interface = pa ? *pa : real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa ? *pa : real_pa;
 
     PaError err = audio_interface.initialize();
     if (err != 0) {
         std::ostringstream buffer;
         buffer << "failed to initialize PortAudio library: " << Pa_GetErrorText(err);
+        VIAM_SDK_LOG(error) << "[startPortAudio] " << buffer.str();
         throw std::runtime_error(buffer.str());
     }
 
@@ -466,6 +474,10 @@ void startPortAudio(audio::portaudio::PortAudioInterface* pa) {
 
       for (int i = 0; i < numDevices; i++) {
           const PaDeviceInfo* info = Pa_GetDeviceInfo(i);
+          if (!info) {
+             VIAM_SDK_LOG(error) << "failed to get device info for " << i+1 << "th device";
+             continue;
+          }
           if (info->maxInputChannels > 0) {
               VIAM_SDK_LOG(info) << info->name << " default sample rate: " << info->defaultSampleRate
               << "max input channels: " << info->maxInputChannels;
@@ -475,7 +487,7 @@ void startPortAudio(audio::portaudio::PortAudioInterface* pa) {
 
 void Microphone::openStream(PaStream** stream) {
     audio::portaudio::RealPortAudio real_pa;
-    audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
 
     VIAM_SDK_LOG(debug) << "Opening stream for device '" << device_name_
                          << "' (index " << device_index_ << ")"
@@ -536,7 +548,7 @@ void Microphone::openStream(PaStream** stream) {
 
 void Microphone::startStream(PaStream* stream) {
     audio::portaudio::RealPortAudio real_pa;
-    audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
 
     PaError err = audio_interface.startStream(stream);
     if (err != paNoError) {
@@ -546,7 +558,7 @@ void Microphone::startStream(PaStream* stream) {
     }
 }
 
-PaDeviceIndex findDeviceByName(const std::string& name, audio::portaudio::PortAudioInterface& pa) {
+PaDeviceIndex findDeviceByName(const std::string& name, const audio::portaudio::PortAudioInterface& pa) {
     int deviceCount = pa.getDeviceCount();
      if (deviceCount < 0) {
           return paNoDevice;
@@ -572,12 +584,13 @@ PaDeviceIndex findDeviceByName(const std::string& name, audio::portaudio::PortAu
 
 void Microphone::shutdownStream(PaStream* stream) {
     audio::portaudio::RealPortAudio real_pa;
-    audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
 
     PaError err = audio_interface.stopStream(stream);
     if (err < 0) {
         std::ostringstream buffer;
         buffer << "failed to stop the stream: " <<  Pa_GetErrorText(err);
+        VIAM_SDK_LOG(error) << "[shutdownStream] " << buffer.str();
         throw std::runtime_error(buffer.str());
     }
 
@@ -586,6 +599,7 @@ void Microphone::shutdownStream(PaStream* stream) {
     if (err < 0) {
         std::ostringstream buffer;
         buffer << "failed to close the stream: " <<  Pa_GetErrorText(err);
+        VIAM_SDK_LOG(error) << "[shutdownStream] " << buffer.str();
         throw std::runtime_error(buffer.str());
     }
 }
