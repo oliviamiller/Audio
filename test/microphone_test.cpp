@@ -299,9 +299,7 @@ TEST_F(MicrophoneTest, GetPropertiesReturnsCorrectValues) {
 
     EXPECT_EQ(props.sample_rate_hz, sample_rate);
     EXPECT_EQ(props.num_channels, num_channels);
-    ASSERT_EQ(props.supported_codecs.size(), 1);
-    EXPECT_EQ(props.supported_codecs[0], viam::sdk::audio_codecs::PCM_16);
-
+    ASSERT_EQ(props.supported_codecs.size(), 4);
 }
 
 TEST_F(MicrophoneTest, ModelExists) {

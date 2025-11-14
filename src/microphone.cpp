@@ -40,14 +40,14 @@ public:
 };
 
 class MP3EncoderGuard {
-    MP3EncoderState& state_;
+    MP3EncoderContext& ctx_;
 public:
-    explicit MP3EncoderGuard(MP3EncoderState& state) : state_(state) {}
+    explicit MP3EncoderGuard(MP3EncoderContext& ctx) : ctx_(ctx) {}
 
     ~MP3EncoderGuard() {
-        if (state_.encoder_ctx) {
-            flush_mp3_encoder(state_);
-            cleanup_mp3_encoder(state_);
+        if (ctx_.ffmpeg_ctx) {
+            flush_mp3_encoder(ctx_);
+            cleanup_mp3_encoder(ctx_);
         }
     }
 };
@@ -118,7 +118,6 @@ void Microphone::reconfigure(const viam::sdk::Dependencies& deps, const viam::sd
     VIAM_SDK_LOG(info) << "[reconfigure] Microphone reconfigure start";
 
     try {
-        //
         // Warn if reconfiguring with active streams
         // Changing the sample rate or number of channels mid stream
         // might cause issues client side, clients need to be actively
@@ -151,7 +150,7 @@ static void encode_audio_chunk(
     const std::string& codec,
     const int16_t* samples,
     int sample_count,
-    MP3EncoderState& mp3_state,
+    MP3EncoderContext& mp3_ctx,
     std::vector<uint8_t>& output_data)
 {
     if (codec == vsdk::audio_codecs::PCM_32) {
@@ -170,7 +169,7 @@ static void encode_audio_chunk(
         }
     } else if (codec == vsdk::audio_codecs::MP3) {
         // Encode samples to MP3
-        encode_mp3_samples(mp3_state, samples, sample_count, output_data);
+        encode_mp3_samples(mp3_ctx, samples, sample_count, output_data);
     } else {  // pcm16
         output_data.resize(sample_count * sizeof(int16_t));
         std::memcpy(output_data.data(), samples, sample_count * sizeof(int16_t));
@@ -191,7 +190,7 @@ void Microphone::get_audio(std::string const& codec,
         codec != vsdk::audio_codecs::PCM_32_FLOAT &&
         codec != vsdk::audio_codecs::MP3) {
         throw std::invalid_argument("Unsupported codec: " + codec +
-            ". Supported codecs: pcm16, pcm32, pcm32f, mp3");
+            ". Supported codecs: pcm16, pcm32, pcm32_float, mp3");
     }
 
     // guard to increment and decremnet the active stream count
@@ -205,8 +204,8 @@ void Microphone::get_audio(std::string const& codec,
     uint64_t sequence = 0;
 
     // MP3 encoder state (persistent across chunks for this stream)
-    MP3EncoderState mp3_state;
-    MP3EncoderGuard mp3_guard(mp3_state);  // RAII: automatically flushes and cleans up on exit
+    MP3EncoderContext mp3_ctx;
+    MP3EncoderGuard mp3_guard(mp3_ctx);
 
     // Initialize MP3 encoder if needed
     if (codec == vsdk::audio_codecs::MP3) {
@@ -219,7 +218,7 @@ void Microphone::get_audio(std::string const& codec,
             encoder_num_channels = num_channels_;
         }
 
-        initialize_mp3_encoder(mp3_state, encoder_sample_rate, encoder_num_channels);
+        initialize_mp3_encoder(mp3_ctx, encoder_sample_rate, encoder_num_channels);
     }
 
     // Track which context we're reading from to detect any device config changes
@@ -300,7 +299,7 @@ void Microphone::get_audio(std::string const& codec,
         vsdk::AudioIn::audio_chunk chunk;
 
         // Convert from int16 (captured format) to requested codec
-        encode_audio_chunk(codec, temp_buffer.data(), samples_read, mp3_state, chunk.audio_data);
+        encode_audio_chunk(codec, temp_buffer.data(), samples_read, mp3_ctx, chunk.audio_data);
 
         // Skip sending empty chunks (can happen with MP3 due to encoder buffering)
         if (codec == vsdk::audio_codecs::MP3 && chunk.audio_data.empty()) {
@@ -332,13 +331,11 @@ void Microphone::get_audio(std::string const& codec,
 
         if (!chunk_handler(std::move(chunk))) {
             VIAM_RESOURCE_LOG(info) << "Chunk handler returned false, stopping";
-            // MP3EncoderGuard will automatically flush and cleanup on return
             return;
         }
     }
 
     VIAM_SDK_LOG(info) << "get_audio stream completed";
-    // MP3EncoderGuard and StreamGuard will automatically cleanup when function exits
 }
 
 viam::sdk::audio_properties Microphone::get_properties(const viam::sdk::ProtoStruct& extra){
@@ -431,50 +428,23 @@ void Microphone::setupStreamFromConfig(const ConfigParams& params) {
         }
     }
 
-    // This is initial setup, not reconfigure, start stream
-    if (!stream_) {
-        // Create audio context for initial setup
-        vsdk::audio_info info{vsdk::audio_codecs::PCM_16, new_sample_rate, new_num_channels};
-        int samples_per_chunk = new_sample_rate * CHUNK_DURATION_SECONDS;  // 100ms chunks
-        auto new_audio_context = std::make_shared<AudioStreamContext>(info, samples_per_chunk);
-
-        // Set configuration under lock before opening stream
-        {
-            std::lock_guard<std::mutex> lock(stream_ctx_mu_);
-            device_name_ = new_device_name;
-            device_index_ = device_index;
-            sample_rate_ = new_sample_rate;
-            num_channels_ = new_num_channels;
-            latency_ = new_latency;
-            audio_context_ = new_audio_context;
-        }
-
-        PaStream* new_stream = nullptr;
-        // These will throw in case of error
-        openStream(&new_stream);
-        startStream(new_stream);
-
-        {
-            std::lock_guard<std::mutex> lock(stream_ctx_mu_);
-            stream_ = new_stream;
-        }
-
-        return;
-    }
-
-    // Config has changed, restart stream
-    vsdk::audio_info info{vsdk::audio_codecs::PCM_16, new_sample_rate, new_num_channels};
-    int samples_per_chunk = new_sample_rate * CHUNK_DURATION_SECONDS ;  // 100ms chunks
-    auto new_audio_context = std::make_shared<AudioStreamContext>(info, samples_per_chunk);
-
+    // Shutdown old stream if reconfiguring
     PaStream* old_stream = nullptr;
     {
         std::lock_guard<std::mutex> lock(stream_ctx_mu_);
         old_stream = stream_;
+        stream_ = nullptr;  // Clear stream pointer during transition
     }
-    if (old_stream) shutdownStream(old_stream);
+    if (old_stream) {
+        shutdownStream(old_stream);
+    }
 
-    // Set new configuration under lock (needed before openStream since it uses these)
+    // Create new audio context
+    vsdk::audio_info info{vsdk::audio_codecs::PCM_16, new_sample_rate, new_num_channels};
+    int samples_per_chunk = new_sample_rate * CHUNK_DURATION_SECONDS;  // 100ms chunks
+    auto new_audio_context = std::make_shared<AudioStreamContext>(info, samples_per_chunk);
+
+    // Update configuration under lock (needed before openStream since it reads these values)
     {
         std::lock_guard<std::mutex> lock(stream_ctx_mu_);
         device_name_ = new_device_name;
@@ -490,7 +460,7 @@ void Microphone::setupStreamFromConfig(const ConfigParams& params) {
     openStream(&new_stream);
     startStream(new_stream);
 
-    // Swap in new stream under lock
+    // Install new stream under lock
     {
         std::lock_guard<std::mutex> lock(stream_ctx_mu_);
         stream_ = new_stream;
@@ -585,8 +555,8 @@ void Microphone::openStream(PaStream** stream) {
         std::ostringstream buffer;
         buffer << "Failed to open audio stream for device '" << device_name_ << "': "
                << Pa_GetErrorText(err)
-               << " (sample_rate=" << config.sample_rate
-               << ", channels=" << config.channels
+               << " (sample_rate=" << sample_rate_
+               << ", channels=" << params.channelCount
                << ", latency=" << params.suggestedLatency << "s)";
         VIAM_SDK_LOG(error) << buffer.str();
         throw std::runtime_error(buffer.str());

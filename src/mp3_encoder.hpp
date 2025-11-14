@@ -45,8 +45,8 @@ inline void avpacket_cleanup(AVPacket* pkt) {
     av_packet_free(&pkt);
 }
 
-struct MP3EncoderState {
-    CleanupPtr<avcodec_context_cleanup> encoder_ctx = nullptr;
+struct MP3EncoderContext {
+    CleanupPtr<avcodec_context_cleanup> ffmpeg_ctx = nullptr;
     CleanupPtr<avframe_cleanup> frame = nullptr;
     std::vector<int16_t> buffer;  // Buffer for incomplete frames
 
@@ -55,12 +55,12 @@ struct MP3EncoderState {
 };
 
 
-void initialize_mp3_encoder(MP3EncoderState& state, int sample_rate, int num_channels);
-void encode_mp3_samples(MP3EncoderState& state,
+void initialize_mp3_encoder(MP3EncoderContext& ctx, int sample_rate, int num_channels);
+void encode_mp3_samples(MP3EncoderContext& ctx,
                         const int16_t* samples,
                         int sample_count,
                         std::vector<uint8_t>& output_data);
-int flush_mp3_encoder(MP3EncoderState& state);
-void cleanup_mp3_encoder(MP3EncoderState& state);
+int flush_mp3_encoder(MP3EncoderContext& ctx);
+void cleanup_mp3_encoder(MP3EncoderContext& ctx);
 
 } // namespace microphone

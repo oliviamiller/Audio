@@ -23,28 +23,31 @@ static void deinterleave_samples(const int16_t* interleaved,
     }
 }
 
-void initialize_mp3_encoder(MP3EncoderState& state, int sample_rate, int num_channels) {
-    // Find MP3 encoder
+void initialize_mp3_encoder(MP3EncoderContext& ctx, int sample_rate, int num_channels) {
+    ctx.sample_rate = sample_rate;
+    ctx.num_channels = num_channels;
+
     const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_MP3);
     if (!codec) {
         throw std::runtime_error("MP3 encoder not found");
     }
 
-    CleanupPtr<avcodec_context_cleanup> encoder_ctx(avcodec_alloc_context3(codec));
-    if (!encoder_ctx) {
+    CleanupPtr<avcodec_context_cleanup> ffmpeg_ctx(avcodec_alloc_context3(codec));
+    if (!ffmpeg_ctx) {
         throw std::runtime_error("Could not allocate MP3 encoder context");
     }
-    state.encoder_ctx = std::move(encoder_ctx);
+    ctx.ffmpeg_ctx = std::move(ffmpeg_ctx);
 
     // Configure encoder
-    state.encoder_ctx->sample_rate = sample_rate;
-    av_channel_layout_default(&state.encoder_ctx->ch_layout, num_channels);
-    // Planar 16-bit - explicitly supported format
-    state.encoder_ctx->sample_fmt = AV_SAMPLE_FMT_S16P;
-    state.encoder_ctx->bit_rate = 192000;
-    state.encoder_ctx->frame_size = 1152;  // Standard MP3 frame size
+    ctx.ffmpeg_ctx->sample_rate = sample_rate;
+    av_channel_layout_default(&ctx.ffmpeg_ctx->ch_layout, num_channels);
+    // describes the format you're feeding into the encoder
+    // encoder explicitly supports planar 16-bit
+    ctx.ffmpeg_ctx->sample_fmt = AV_SAMPLE_FMT_S16P;
+    ctx.ffmpeg_ctx->bit_rate = 192000;     // target mp3 bit rate
+    ctx.ffmpeg_ctx->frame_size = 1152;  // Standard MP3 frame size
 
-    if (avcodec_open2(state.encoder_ctx.get(), codec, nullptr) < 0) {
+    if (avcodec_open2(ctx.ffmpeg_ctx.get(), codec, nullptr) < 0) {
         throw std::runtime_error("Could not open MP3 encoder");
     }
 
@@ -53,52 +56,49 @@ void initialize_mp3_encoder(MP3EncoderState& state, int sample_rate, int num_cha
     if (!frame) {
         throw std::runtime_error("Could not allocate MP3 frame");
     }
-    state.frame = std::move(frame);
+    ctx.frame = std::move(frame);
 
-    state.frame->nb_samples = state.encoder_ctx->frame_size;
-    state.frame->format = state.encoder_ctx->sample_fmt;
-    av_channel_layout_copy(&state.frame->ch_layout, &state.encoder_ctx->ch_layout);
+    ctx.frame->nb_samples = ctx.ffmpeg_ctx->frame_size;
+    ctx.frame->format = ctx.ffmpeg_ctx->sample_fmt;
+    av_channel_layout_copy(&ctx.frame->ch_layout, &ctx.ffmpeg_ctx->ch_layout);
 
-    if (av_frame_get_buffer(state.frame.get(), 0) < 0) {
+    if (av_frame_get_buffer(ctx.frame.get(), 0) < 0) {
         throw std::runtime_error("Could not allocate MP3 frame buffer");
     }
 
-    state.sample_rate = sample_rate;
-    state.num_channels = num_channels;
-    state.buffer.clear();
+    ctx.buffer.clear();
 
     VIAM_SDK_LOG(info) << "MP3 encoder initialized: " << sample_rate
                        << "Hz, " << num_channels << " channels, "
-                       << state.encoder_ctx->frame_size << " samples/frame";
+                       << ctx.ffmpeg_ctx->frame_size << " samples/frame";
 }
 
-void encode_mp3_samples(MP3EncoderState& state,
+void encode_mp3_samples(MP3EncoderContext& ctx,
                         const int16_t* samples,
                         int sample_count,
                         std::vector<uint8_t>& output_data) {
-    if (!state.encoder_ctx || !state.frame) {
+    if (!ctx.ffmpeg_ctx || !ctx.frame) {
         throw std::runtime_error("MP3 encoder not initialized");
     }
 
-    // Add new samples to buffer
-    state.buffer.insert(state.buffer.end(), samples, samples + sample_count);
+    ctx.buffer.insert(ctx.buffer.end(), samples, samples + sample_count);
 
-    size_t samples_per_frame = static_cast<size_t>(state.encoder_ctx->frame_size * state.num_channels);
+    size_t samples_per_frame = static_cast<size_t>(ctx.ffmpeg_ctx->frame_size * ctx.num_channels);
 
     // Encode as many complete frames as we have buffered
-    while (state.buffer.size() >= samples_per_frame) {
+    while (ctx.buffer.size() >= samples_per_frame) {
         // De-interleave samples into planar format
-        deinterleave_samples(state.buffer.data(), state.frame.get(),
-                           state.encoder_ctx->frame_size, state.num_channels);
+        deinterleave_samples(ctx.buffer.data(), ctx.frame.get(),
+                           ctx.ffmpeg_ctx->frame_size, ctx.num_channels);
 
         // Send frame to encoder
-        int ret = avcodec_send_frame(state.encoder_ctx.get(), state.frame.get());
+        int ret = avcodec_send_frame(ctx.ffmpeg_ctx.get(), ctx.frame.get());
         if (ret < 0) {
             throw std::runtime_error("Error sending frame to MP3 encoder");
         }
 
         // Remove encoded samples from buffer
-        state.buffer.erase(state.buffer.begin(), state.buffer.begin() + samples_per_frame);
+        ctx.buffer.erase(ctx.buffer.begin(), ctx.buffer.begin() + samples_per_frame);
 
         // Receive encoded packets (may get multiple or none due to encoder buffering)
         CleanupPtr<avpacket_cleanup> pkt(av_packet_alloc());
@@ -106,7 +106,7 @@ void encode_mp3_samples(MP3EncoderState& state,
             throw std::runtime_error("Could not allocate packet");
         }
 
-        while ((ret = avcodec_receive_packet(state.encoder_ctx.get(), pkt.get())) == 0) {
+        while ((ret = avcodec_receive_packet(ctx.ffmpeg_ctx.get(), pkt.get())) == 0) {
             output_data.insert(output_data.end(), pkt->data, pkt->data + pkt->size);
             av_packet_unref(pkt.get());
         }
@@ -118,13 +118,13 @@ void encode_mp3_samples(MP3EncoderState& state,
     }
 }
 
-int flush_mp3_encoder(MP3EncoderState& state) {
-    if (!state.encoder_ctx) {
+int flush_mp3_encoder(MP3EncoderContext& ctx) {
+    if (!ctx.ffmpeg_ctx) {
         return 0;
     }
 
     // Flush encoder by sending NULL frame
-    avcodec_send_frame(state.encoder_ctx.get(), nullptr);
+    avcodec_send_frame(ctx.ffmpeg_ctx.get(), nullptr);
 
     // Drain and count remaining packets
     CleanupPtr<avpacket_cleanup> pkt(av_packet_alloc());
@@ -133,7 +133,7 @@ int flush_mp3_encoder(MP3EncoderState& state) {
     }
 
     int flushed_packets = 0;
-    while (avcodec_receive_packet(state.encoder_ctx.get(), pkt.get()) == 0) {
+    while (avcodec_receive_packet(ctx.ffmpeg_ctx.get(), pkt.get()) == 0) {
         flushed_packets++;
         av_packet_unref(pkt.get());
     }
@@ -142,22 +142,22 @@ int flush_mp3_encoder(MP3EncoderState& state) {
         VIAM_SDK_LOG(info) << "MP3 encoder flushed " << flushed_packets << " remaining packets";
     }
 
-    if (!state.buffer.empty()) {
-        VIAM_SDK_LOG(info) << "Discarded " << state.buffer.size() / state.num_channels
+    if (!ctx.buffer.empty()) {
+        VIAM_SDK_LOG(info) << "Discarded " << ctx.buffer.size() / ctx.num_channels
                            << " unbuffered samples at end of stream";
     }
 
     return flushed_packets;
 }
 
-void cleanup_mp3_encoder(MP3EncoderState& state) {
+void cleanup_mp3_encoder(MP3EncoderContext& ctx) {
     // Reset smart pointers
-    state.frame.reset();
-    state.encoder_ctx.reset();
+    ctx.frame.reset();
+    ctx.ffmpeg_ctx.reset();
 
-    state.buffer.clear();
-    state.sample_rate = 0;
-    state.num_channels = 0;
+    ctx.buffer.clear();
+    ctx.sample_rate = 0;
+    ctx.num_channels = 0;
 }
 
 } // namespace microphone
