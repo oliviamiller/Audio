@@ -1,4 +1,6 @@
 #include "microphone.hpp"
+#include "speaker.hpp"
+#include "portaudio.hpp"
 #include <viam/sdk/common/instance.hpp>
 #include <viam/sdk/module/service.hpp>
 
@@ -6,7 +8,6 @@
 #include <memory>
 
 namespace vsdk = ::viam::sdk;
-
 
 std::vector<std::shared_ptr<vsdk::ModelRegistration>> create_all_model_registrations() {
     std::vector<std::shared_ptr<vsdk::ModelRegistration>> registrations;
@@ -19,6 +20,14 @@ std::vector<std::shared_ptr<vsdk::ModelRegistration>> create_all_model_registrat
         },
         microphone::Microphone::validate));
 
+    registrations.push_back(std::make_shared<vsdk::ModelRegistration>(
+        vsdk::API::get<vsdk::AudioOut>(),
+        speaker::Speaker::model,
+        [](vsdk::Dependencies deps, vsdk::ResourceConfig config) {
+            return std::make_unique<speaker::Speaker>(std::move(deps), std::move(config));
+        },
+        speaker::Speaker::validate));
+
     return registrations;
 }
 
@@ -29,7 +38,8 @@ int serve(int argc, char** argv) try {
     // all Viam C++ SDK objects are destroyed.
     vsdk::Instance inst;
 
-    microphone::startPortAudio();
+    audio::portaudio::startPortAudio();
+
     auto module_service = std::make_shared<vsdk::ModuleService>(argc, argv, create_all_model_registrations());
     module_service->serve();
 

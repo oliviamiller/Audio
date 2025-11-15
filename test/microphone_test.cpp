@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
 #include <viam/sdk/common/instance.hpp>
 #include <viam/sdk/config/resource.hpp>
 #include <portaudio.h>
 #include <viam/sdk/common/audio.hpp>
 #include "microphone.hpp"
+#include "test_utils.hpp"
 #include <thread>
 
 class MicrophoneTestEnvironment : public ::testing::Environment {
@@ -17,61 +17,10 @@ private:
   std::unique_ptr<viam::sdk::Instance> instance_;
 };
 
-
 using namespace viam::sdk;
 using namespace audio;
 
-
-// Mock PortAudio interface
-class MockPortAudio : public audio::portaudio::PortAudioInterface {
-public:
-      MOCK_METHOD(PaError, initialize, (), (const, override));
-      MOCK_METHOD(PaDeviceIndex, getDefaultInputDevice, (), (const, override));
-      MOCK_METHOD(PaDeviceIndex, getDefaultOutputDevice, (), (const, override));
-      MOCK_METHOD(const PaDeviceInfo*, getDeviceInfo, (PaDeviceIndex device), (const, override));
-      MOCK_METHOD(PaError, openStream, (PaStream** stream, const PaStreamParameters* inputParameters,
-                                        const PaStreamParameters* outputParameters, double sampleRate,
-                                        unsigned long framesPerBuffer, PaStreamFlags streamFlags,
-                                        PaStreamCallback* streamCallback, void* userData), (const, override));
-      MOCK_METHOD(PaError, startStream, (PaStream* stream), (const, override));
-      MOCK_METHOD(PaError, terminate, (), (const, override));
-      MOCK_METHOD(PaError, stopStream, (PaStream* stream), (const, override));
-      MOCK_METHOD(PaError, closeStream, (PaStream* stream), (const, override));
-      MOCK_METHOD(PaDeviceIndex, getDeviceCount, (), (const, override));
-      MOCK_METHOD(PaStreamInfo*, getStreamInfo, (PaStream* stream), (const, override));
-      MOCK_METHOD(PaError, isFormatSupported, (const PaStreamParameters* inputParameters,
-                                               const PaStreamParameters* outputParameters,
-                                               double sampleRate), (const, override));
-  };
-
-// Base test fixture with common PortAudio mock setup
-// All audio tests inherit from this for consistency
-class AudioTestBase : public ::testing::Test {
-protected:
-    void SetUp() override {
-        mock_pa_ = std::make_unique<::testing::NiceMock<MockPortAudio>>();
-
-        // Setup mock device info with common defaults
-        mock_device_info_.defaultLowInputLatency = 0.01;
-        mock_device_info_.defaultLowOutputLatency = 0.01;
-        mock_device_info_.defaultSampleRate = 44100.0;
-        mock_device_info_.maxInputChannels = 2;
-        mock_device_info_.maxOutputChannels = 0;
-        mock_device_info_.name = testDeviceName;
-    }
-
-    void TearDown() override {
-        mock_pa_.reset();
-    }
-
-    // Common test device name used across all tests
-    static constexpr const char* testDeviceName = "Test Device";
-
-    std::unique_ptr<::testing::NiceMock<MockPortAudio>> mock_pa_;
-    PaDeviceInfo mock_device_info_;
-};
-
-class MicrophoneTest : public AudioTestBase {
+class MicrophoneTest : public test_utils::AudioTestBase {
 protected:
     void SetUp() override {
         AudioTestBase::SetUp();
@@ -85,8 +34,6 @@ protected:
             "rdk:component:audioin", "", test_name_, attributes, "",
             Model("viam", "audio", "microphone"), LinkConfig{}, log_level::info
         );
-
-        SetupDefaultPortAudioBehavior();
     }
     ResourceConfig createConfig(const std::string& device_name = testDeviceName,
                                 int sample_rate = 44100,

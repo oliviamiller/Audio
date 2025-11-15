@@ -19,7 +19,7 @@ namespace vsdk = ::viam::sdk;
 
 struct ConfigParams {
     std::string device_name;
-    std::optional<int> sample_rate;  // optional: may use device default
+    std::optional<int> sample_rate;
     std::optional<int> num_channels;
     std::optional<double> latency_ms;
 };
@@ -42,7 +42,6 @@ struct ActiveStreamConfig {
 
 ConfigParams parseConfigAttributes(const viam::sdk::ResourceConfig& cfg);
 PaDeviceIndex findDeviceByName(const std::string& name, const audio::portaudio::PortAudioInterface& pa);
-void startPortAudio(const audio::portaudio::PortAudioInterface* pa = nullptr);
 
 
 class Microphone final : public viam::sdk::AudioIn, public viam::sdk::Reconfigurable {
