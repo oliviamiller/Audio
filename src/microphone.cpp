@@ -553,24 +553,25 @@ uint64_t get_initial_read_position(const std::shared_ptr<AudioStreamContext>& st
         throw std::invalid_argument(buffer.str());
     }
 
-    // Validate timestamp is not in the future
-    auto now = std::chrono::system_clock::now();
-    auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
-    if (previous_timestamp > now_ns) {
-        std::ostringstream buffer;
-        buffer << "requested timestamp " << previous_timestamp
-               << " is in the future (current time: " << now_ns << "): audio not yet captured";
-        VIAM_SDK_LOG(error) << buffer.str();
-        throw std::invalid_argument(buffer.str());
-    }
-
     // Convert timestamp to sample position, then advance by 1
     // We read from the NEXT sample after the requested timestamp
     uint64_t sample_number = stream_context->get_sample_number_from_timestamp(previous_timestamp);
     uint64_t read_position = sample_number + 1;
 
-    // Validate timestamp is not too old (audio has been overwritten)
+    // Validate timestamp is not in the future
     uint64_t current_write_pos = stream_context->get_write_position();
+    if (read_position > current_write_pos) {
+        // Calculate what the current time would be based on samples written
+        auto latest_timestamp = stream_context->calculate_sample_timestamp(current_write_pos);
+        std::ostringstream buffer;
+        buffer << "requested timestamp " << previous_timestamp
+               << " is in the future (latest available: " << latest_timestamp.count()
+               << "): audio not yet captured";
+        VIAM_SDK_LOG(error) << buffer.str();
+        throw std::invalid_argument(buffer.str());
+    }
+
+    // Validate timestamp is not too old (audio has been overwritten)
     if (current_write_pos > read_position + stream_context->buffer_capacity) {
         std::ostringstream buffer;
         buffer << "requested timestamp is too old - audio has been overwritten. "
