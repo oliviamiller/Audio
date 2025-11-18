@@ -52,7 +52,7 @@ TEST_F(MP3EncoderTest, EncodeIncompleteMp3Frame) {
     auto samples = create_test_samples(500 * 2);
     std::vector<uint8_t> output;
 
-    encode_mp3_samples(ctx_, samples.data(), samples.size(), output);
+    encode_mp3_samples(ctx_, samples.data(), samples.size(), 0, output);
 
     // Should buffer the samples but not produce output yet
     EXPECT_TRUE(output.empty());
@@ -67,7 +67,7 @@ TEST_F(MP3EncoderTest, EncodeOneCompleteMp3Frame) {
     auto samples = create_test_samples(1152 * 2);
     std::vector<uint8_t> output;
 
-    encode_mp3_samples(ctx_, samples.data(), samples.size(), output);
+    encode_mp3_samples(ctx_, samples.data(), samples.size(), 0, output);
 
     // Buffer should be empty (all samples consumed into one frame)
     EXPECT_TRUE(ctx_.buffer.empty());
@@ -75,7 +75,7 @@ TEST_F(MP3EncoderTest, EncodeOneCompleteMp3Frame) {
     // MP3 encoder may not output yet due to lookahead buffering
     // Send more frames to force output
     auto more_samples = create_test_samples(1152 * 4 * 2);
-    encode_mp3_samples(ctx_, more_samples.data(), more_samples.size(), output);
+    encode_mp3_samples(ctx_, more_samples.data(), more_samples.size(), samples.size(), output);
     EXPECT_FALSE(output.empty());
 }
 TEST_F(MP3EncoderTest, EncodeMultipleMp3Frames) {
@@ -86,7 +86,7 @@ TEST_F(MP3EncoderTest, EncodeMultipleMp3Frames) {
     auto samples = create_test_samples(4032 * 2);
     std::vector<uint8_t> output;
 
-    encode_mp3_samples(ctx_, samples.data(), samples.size(), output);
+    encode_mp3_samples(ctx_, samples.data(), samples.size(), 0, output);
     EXPECT_FALSE(output.empty());
     // Buffer should contain the leftover 0.5 frame
     EXPECT_EQ(ctx_.buffer.size(), 576 * 2);
@@ -99,13 +99,13 @@ TEST_F(MP3EncoderTest, AccumulateAcrossMultipleCalls) {
 
     // First call: 500 samples (not enough for a frame)
     auto samples1 = create_test_samples(500 * 2);
-    encode_mp3_samples(ctx_, samples1.data(), samples1.size(), output);
+    encode_mp3_samples(ctx_, samples1.data(), samples1.size(), 0, output);
     EXPECT_TRUE(output.empty());
     EXPECT_EQ(ctx_.buffer.size(), 500 * 2);
 
     // Second call: 700 more samples (total = 1200, enough for 1 frame)
     auto samples2 = create_test_samples(700 * 2);
-    encode_mp3_samples(ctx_, samples2.data(), samples2.size(), output);
+    encode_mp3_samples(ctx_, samples2.data(), samples2.size(), 500 * 2, output);
 
     // MP3 encoder uses lookahead buffering - may not output immediately
     // Just verify buffer state is correct (1200 - 1152 = 48 samples left)
@@ -113,7 +113,7 @@ TEST_F(MP3EncoderTest, AccumulateAcrossMultipleCalls) {
 
     // Send more frames to force output from lookahead buffer
     auto samples3 = create_test_samples(1152 * 5 * 2);  // 5 more frames
-    encode_mp3_samples(ctx_, samples3.data(), samples3.size(), output);
+    encode_mp3_samples(ctx_, samples3.data(), samples3.size(), 1200 * 2, output);
     EXPECT_FALSE(output.empty()) << "Should have MP3 output after sending multiple frames";
 }
 
@@ -122,11 +122,12 @@ TEST_F(MP3EncoderTest, FlushEncoder) {
 
     auto samples = create_test_samples(1152 * 5 * 2);
     std::vector<uint8_t> output;
-    encode_mp3_samples(ctx_, samples.data(), samples.size(), output);
+    encode_mp3_samples(ctx_, samples.data(), samples.size(), 0, output);
 
     // Flush should retrieve any buffered packets from the encoder
-    int flushed = flush_mp3_encoder(ctx_);
-    EXPECT_GT(flushed, 0);
+    std::vector<uint8_t> flush_output;
+    flush_mp3_encoder(ctx_, flush_output);
+    EXPECT_FALSE(flush_output.empty());
 }
 
 TEST_F(MP3EncoderTest, CleanupEncoder) {
@@ -150,7 +151,7 @@ TEST_F(MP3EncoderTest, EncodeWithoutInitialization) {
 
     // Should throw because encoder is not initialized
     EXPECT_THROW(
-        encode_mp3_samples(ctx_, samples.data(), samples.size(), output),
+        encode_mp3_samples(ctx_, samples.data(), samples.size(), 0, output),
         std::runtime_error
     );
 }

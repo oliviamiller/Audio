@@ -119,7 +119,7 @@ void encode_mp3_samples(MP3EncoderContext& ctx,
 
         // AVERROR(EAGAIN) is expected when encoder needs more frames
         if (ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
-            VIAM_SDK_LOG(warn) << "MP3 encoder error: " << ret;
+            VIAM_SDK_LOG(error) << "MP3 encoder error: " << ret;
         }
     }
 }

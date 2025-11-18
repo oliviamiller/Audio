@@ -156,7 +156,6 @@ viam::sdk::ProtoStruct Microphone::do_command(const viam::sdk::ProtoStruct& comm
     return viam::sdk::ProtoStruct();
 }
 
-// Helper function to encode audio samples to the requested codec format
 static void encode_audio_chunk(
     const std::string& codec,
     const int16_t* samples,
@@ -166,7 +165,7 @@ static void encode_audio_chunk(
     std::vector<uint8_t>& output_data)
 {
     if (codec == vsdk::audio_codecs::PCM_32) {
-        // Convert int16 to int32 (left shift by 16 to preserve range)
+        // Convert int16 to int32 (left shift by 16 to preserve volume)
         output_data.resize(sample_count * sizeof(int32_t));
         int32_t* output = reinterpret_cast<int32_t*>(output_data.data());
         for (int i = 0; i < sample_count; i++) {
@@ -180,12 +179,18 @@ static void encode_audio_chunk(
             output[i] = static_cast<float>(samples[i]) / 32768.0f;
         }
     } else if (codec == vsdk::audio_codecs::MP3) {
-        // Encode samples to MP3
         encode_mp3_samples(mp3_ctx, samples, sample_count, chunk_start_position, output_data);
     } else {  // pcm16
         output_data.resize(sample_count * sizeof(int16_t));
         std::memcpy(output_data.data(), samples, sample_count * sizeof(int16_t));
     }
+}
+
+std::string toLower(std::string s) {
+    for (char& c : s) {
+        c = std::tolower(static_cast<unsigned char>(c));
+    }
+    return s;
 }
 
 void Microphone::get_audio(std::string const& codec,
@@ -196,18 +201,21 @@ void Microphone::get_audio(std::string const& codec,
 
     //TODO: get audio starting from prev timestamp
 
+    std::string requested_codec = toLower(codec);
+
     // Validate codec is supported
-    if (codec != vsdk::audio_codecs::PCM_16 &&
-        codec != vsdk::audio_codecs::PCM_32 &&
-        codec != vsdk::audio_codecs::PCM_32_FLOAT &&
-        codec != vsdk::audio_codecs::MP3) {
-        VIAM_SDK_LOG(error) << "Unsupported codec: " << codec <<
-            ". Supported codecs: pcm16, pcm32, pcm32_float, mp3";
-        throw std::invalid_argument("Unsupported codec: " + codec +
-            ". Supported codecs: pcm16, pcm32, pcm32_float, mp3");
+    if (requested_codec != vsdk::audio_codecs::PCM_16 &&
+        requested_codec != vsdk::audio_codecs::PCM_32 &&
+        requested_codec != vsdk::audio_codecs::PCM_32_FLOAT &&
+        requested_codec != vsdk::audio_codecs::MP3) {
+        std::ostringstream buffer;
+        buffer << "Unsupported codec: " << codec <<
+        ". Supported codecs: pcm16, pcm32, pcm32_float, mp3";
+        VIAM_SDK_LOG(error) << buffer.str();
+        throw std::invalid_argument(buffer.str());
     }
 
-    // guard to increment and decremnet the active stream count
+    // guard to increment and decrement the active stream count
     StreamGuard stream_guard(stream_ctx_mu_, active_streams_);
 
     // Set duration timer
@@ -216,24 +224,6 @@ void Microphone::get_audio(std::string const& codec,
     bool timer_started = false;
 
     uint64_t sequence = 0;
-
-    // MP3 encoder state (persistent across chunks for this stream)
-    MP3EncoderContext mp3_ctx;
-    MP3EncoderGuard mp3_guard(mp3_ctx);
-
-    // Initialize MP3 encoder if needed
-    if (codec == vsdk::audio_codecs::MP3) {
-        // Get stream config
-        int encoder_sample_rate;
-        int encoder_num_channels;
-        {
-            std::lock_guard<std::mutex> lock(stream_ctx_mu_);
-            encoder_sample_rate = sample_rate_;
-            encoder_num_channels = num_channels_;
-        }
-
-        initialize_mp3_encoder(mp3_ctx, encoder_sample_rate, encoder_num_channels);
-    }
 
     // Track which context we're reading from to detect any device config changes
     std::shared_ptr<AudioStreamContext> stream_context;
@@ -259,6 +249,7 @@ void Microphone::get_audio(std::string const& codec,
         stream_sample_rate = sample_rate_;
         stream_num_channels = num_channels_;
     }
+
     int samples_per_chunk = (stream_sample_rate * CHUNK_DURATION_SECONDS) * stream_num_channels;
     if (samples_per_chunk <= 0){
         std::ostringstream buffer;
@@ -269,8 +260,15 @@ void Microphone::get_audio(std::string const& codec,
         throw std::runtime_error(buffer.str());
     }
 
+    MP3EncoderContext mp3_ctx;
+    MP3EncoderGuard mp3_guard(mp3_ctx);
+
+    // Initialize MP3 encoder if needed
+    if (requested_codec == vsdk::audio_codecs::MP3) {
+        initialize_mp3_encoder(mp3_ctx, stream_sample_rate, stream_num_channels);
+    }
+
     while (std::chrono::steady_clock::now() < end_time) {
-        // Check if audio_context_ changed (device reconfigured)
         {
             std::lock_guard<std::mutex> lock(stream_ctx_mu_);
 
@@ -285,7 +283,7 @@ void Microphone::get_audio(std::string const& codec,
                     samples_per_chunk = (stream_sample_rate * CHUNK_DURATION_SECONDS) * stream_num_channels;
 
                     // Reinitialize MP3 encoder with new config if using MP3 codec
-                    if (codec == vsdk::audio_codecs::MP3) {
+                    if (requested_codec == vsdk::audio_codecs::MP3) {
                         std::vector<uint8_t> discarded_data;
                         flush_mp3_encoder(mp3_ctx, discarded_data);
                         cleanup_mp3_encoder(mp3_ctx);
@@ -324,7 +322,7 @@ void Microphone::get_audio(std::string const& codec,
         vsdk::AudioIn::audio_chunk chunk;
 
         // Convert from int16 (captured format) to requested codec
-        encode_audio_chunk(codec, temp_buffer.data(), samples_read, chunk_start_position, mp3_ctx, chunk.audio_data);
+        encode_audio_chunk(requested_codec, temp_buffer.data(), samples_read, chunk_start_position, mp3_ctx, chunk.audio_data);
 
         // Skip sending empty chunks (can happen with MP3 due to encoder buffering)
         if (codec == vsdk::audio_codecs::MP3 && chunk.audio_data.empty()) {
@@ -519,7 +517,6 @@ void Microphone::setupStreamFromConfig(const ConfigParams& params) {
     VIAM_SDK_LOG(info) << "[setupStreamFromConfig] Stream configured successfully";
 
 }
-
 
 void startPortAudio(const audio::portaudio::PortAudioInterface* pa) {
     audio::portaudio::RealPortAudio real_pa;
