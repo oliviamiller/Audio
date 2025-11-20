@@ -24,7 +24,7 @@ protected:
         // Create a basic audio context for testing
         audio_info info{viam::sdk::audio_codecs::PCM_16, 44100, 1};
         samples_per_chunk_ = 4410;
-        context_ = std::make_unique<AudioStreamContext>(info, samples_per_chunk_);
+        context_ = std::make_unique<AudioStreamContext>(info);
     }
 
     void TearDown() override {
@@ -233,12 +233,9 @@ TEST_F(AudioStreamContextTest, CalculateSampleTimestamp) {
               .num_channels = 1
           };
 
-          samples_per_chunk = 100;
-
           // Create ring buffer context (10 second buffer)
           ctx = std::make_unique<microphone::AudioStreamContext>(
               test_info,
-              samples_per_chunk,
               10
           );
 

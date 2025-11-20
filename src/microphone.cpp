@@ -2,7 +2,76 @@
 #include "mp3_encoder.hpp"
 #include <thread>
 
+
 namespace microphone {
+
+  // === Static Helper Functions ===
+
+static void convert_pcm16_to_pcm32(const int16_t* samples, int sample_count, std::vector<uint8_t>& output) {
+    // Convert int16 to int32 (left shift by 16 to preserve volume)
+    output.resize(sample_count * sizeof(int32_t));
+    int32_t* out = reinterpret_cast<int32_t*>(output.data());
+    for (int i = 0; i < sample_count; i++) {
+        out[i] = static_cast<int32_t>(samples[i]) << 16;
+    }
+}
+
+static void convert_pcm16_to_float32(const int16_t* samples, int sample_count, std::vector<uint8_t>& output) {
+    // Convert int16 to float32 (normalize to range -1.0 to 1.0)
+    output.resize(sample_count * sizeof(float));
+    float* out = reinterpret_cast<float*>(output.data());
+    for (int i = 0; i < sample_count; i++) {
+        out[i] = static_cast<float>(samples[i]) / 32768.0f;
+    }
+}
+
+static void copy_pcm16(const int16_t* samples, int sample_count, std::vector<uint8_t>& output) {
+    output.resize(sample_count * sizeof(int16_t));
+    std::memcpy(output.data(), samples, sample_count * sizeof(int16_t));
+}
+
+static void encode_audio_chunk(
+    const std::string& codec,
+    const int16_t* samples,
+    int sample_count,
+    uint64_t chunk_start_position,
+    MP3EncoderContext& mp3_ctx,
+    std::vector<uint8_t>& output_data)
+{
+    if (codec == vsdk::audio_codecs::PCM_32) {
+        convert_pcm16_to_pcm32(samples, sample_count, output_data);
+    } else if (codec == vsdk::audio_codecs::PCM_32_FLOAT) {
+        convert_pcm16_to_float32(samples, sample_count, output_data);
+    } else if (codec == vsdk::audio_codecs::MP3) {
+        encode_samples(mp3_ctx, samples, sample_count, chunk_start_position, output_data);
+    } else {  // pcm16
+        copy_pcm16(samples, sample_count, output_data);
+    }
+}
+
+static std::string toLower(std::string s) {
+    for (char& c : s) {
+        c = std::tolower(static_cast<unsigned char>(c));
+    }
+    return s;
+}
+
+class StreamGuard {
+    std::mutex& mutex_;
+    int& counter_;
+public:
+    StreamGuard(std::mutex& m, int& c) : mutex_(m), counter_(c) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        counter_++;
+    }
+    ~StreamGuard() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        counter_--;
+    }
+};
+
+
+  // === Microphone Class Implementation ===
 
 Microphone::Microphone(viam::sdk::Dependencies deps, viam::sdk::ResourceConfig cfg,
                        audio::portaudio::PortAudioInterface* pa)
@@ -20,20 +89,6 @@ Microphone::~Microphone() {
 }
 
 vsdk::Model Microphone::model("viam", "audio", "microphone");
-
-class StreamGuard {
-    std::mutex& mutex_;
-    int& counter_;
-public:
-    StreamGuard(std::mutex& m, int& c) : mutex_(m), counter_(c) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        counter_++;
-    }
-    ~StreamGuard() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        counter_--;
-    }
-};
 
 
 
@@ -141,55 +196,6 @@ viam::sdk::ProtoStruct Microphone::do_command(const viam::sdk::ProtoStruct& comm
     return viam::sdk::ProtoStruct();
 }
 
-static void convert_pcm16_to_pcm32(const int16_t* samples, int sample_count, std::vector<uint8_t>& output) {
-    // Convert int16 to int32 (left shift by 16 to preserve volume)
-    output.resize(sample_count * sizeof(int32_t));
-    int32_t* out = reinterpret_cast<int32_t*>(output.data());
-    for (int i = 0; i < sample_count; i++) {
-        out[i] = static_cast<int32_t>(samples[i]) << 16;
-    }
-}
-
-static void convert_pcm16_to_float32(const int16_t* samples, int sample_count, std::vector<uint8_t>& output) {
-    // Convert int16 to float32 (normalize to range -1.0 to 1.0)
-    output.resize(sample_count * sizeof(float));
-    float* out = reinterpret_cast<float*>(output.data());
-    for (int i = 0; i < sample_count; i++) {
-        out[i] = static_cast<float>(samples[i]) / 32768.0f;
-    }
-}
-
-static void copy_pcm16(const int16_t* samples, int sample_count, std::vector<uint8_t>& output) {
-    output.resize(sample_count * sizeof(int16_t));
-    std::memcpy(output.data(), samples, sample_count * sizeof(int16_t));
-}
-
-static void encode_audio_chunk(
-    const std::string& codec,
-    const int16_t* samples,
-    int sample_count,
-    uint64_t chunk_start_position,
-    MP3EncoderContext& mp3_ctx,
-    std::vector<uint8_t>& output_data)
-{
-    if (codec == vsdk::audio_codecs::PCM_32) {
-        convert_pcm16_to_pcm32(samples, sample_count, output_data);
-    } else if (codec == vsdk::audio_codecs::PCM_32_FLOAT) {
-        convert_pcm16_to_float32(samples, sample_count, output_data);
-    } else if (codec == vsdk::audio_codecs::MP3) {
-        buffer_and_encode_samples(mp3_ctx, samples, sample_count, chunk_start_position, output_data);
-    } else {  // pcm16
-        copy_pcm16(samples, sample_count, output_data);
-    }
-}
-
-std::string toLower(std::string s) {
-    for (char& c : s) {
-        c = std::tolower(static_cast<unsigned char>(c));
-    }
-    return s;
-}
-
 void Microphone::get_audio(std::string const& codec,
                            std::function<bool(vsdk::AudioIn::audio_chunk&& chunk)> const& chunk_handler,
                            double const& duration_seconds,
@@ -247,17 +253,26 @@ void Microphone::get_audio(std::string const& codec,
         stream_num_channels = num_channels_;
     }
 
-    int samples_per_chunk = (stream_sample_rate * CHUNK_DURATION_SECONDS) * stream_num_channels;
+    // Calculate chunk size based on codec
+    // MP3: Use aligned chunks (multiples of 1152 samples per channel)
+    // PCM: Use fixed 100ms chunks
+    int samples_per_chunk;
+    if (requested_codec == vsdk::audio_codecs::MP3) {
+        samples_per_chunk = calculate_aligned_chunk_size(stream_sample_rate, stream_num_channels);
+    } else {
+        samples_per_chunk = static_cast<int>(stream_sample_rate * 0.1) * stream_num_channels;  // 100ms
+    }
+
     if (samples_per_chunk <= 0){
         std::ostringstream buffer;
         buffer << "calculated invalid samples_per_chunk: " << samples_per_chunk <<
-        " with sample rate: " << stream_sample_rate << " num channels: " << stream_num_channels
-        << " chunk duration seconds: " << CHUNK_DURATION_SECONDS;
+        " with sample rate: " << stream_sample_rate << " num channels: " << stream_num_channels;
         VIAM_SDK_LOG(error) << buffer.str();
         throw std::runtime_error(buffer.str());
     }
 
     MP3EncoderContext mp3_ctx;
+    uint64_t last_chunk_end_position;
 
     // Initialize MP3 encoder if needed
     if (requested_codec == vsdk::audio_codecs::MP3) {
@@ -276,7 +291,12 @@ void Microphone::get_audio(std::string const& codec,
                     // Update sample rate and channels from new config
                     stream_sample_rate = sample_rate_;
                     stream_num_channels = num_channels_;
-                    samples_per_chunk = (stream_sample_rate * CHUNK_DURATION_SECONDS) * stream_num_channels;
+                    // Recalculate chunk size for new config
+                    if (requested_codec == vsdk::audio_codecs::MP3) {
+                        samples_per_chunk = calculate_aligned_chunk_size(stream_sample_rate, stream_num_channels);
+                    } else {
+                        samples_per_chunk = static_cast<int>(stream_sample_rate * 0.1) * stream_num_channels;
+                    }
 
                     // Reinitialize MP3 encoder with new config if using MP3 codec
                     if (requested_codec == vsdk::audio_codecs::MP3) {
@@ -324,14 +344,26 @@ void Microphone::get_audio(std::string const& codec,
         chunk.sequence_number = sequence++;
 
         // Calculate timestamps based on sample position in stream
-        chunk.start_timestamp_ns = calculate_sample_timestamp(
-            *stream_context,
-            chunk_start_position
-        );
-        chunk.end_timestamp_ns = calculate_sample_timestamp(
-            *stream_context,
-            chunk_start_position + samples_read
-        );
+        // For MP3: adjust for encoder delay since decoded output will be shifted
+        uint64_t chunk_end_position = chunk_start_position + samples_read;
+
+        if (requested_codec == vsdk::audio_codecs::MP3 && mp3_ctx.encoder) {
+            int delay_samples = mp3_ctx.encoder_delay * stream_num_channels;
+            // Timestamps should reflect where the decoded audio actually appears
+            // Subtract delay from positions
+            if (chunk_start_position >= delay_samples) {
+                chunk_start_position -= delay_samples;
+            } else {
+                chunk_start_position = 0;
+            }
+            chunk_end_position -= delay_samples;
+        }
+
+        chunk.start_timestamp_ns = calculate_sample_timestamp(*stream_context, chunk_start_position);
+        chunk.end_timestamp_ns = calculate_sample_timestamp(*stream_context, chunk_end_position);
+
+        // Track last chunk end position for MP3 flush timestamp
+        last_chunk_end_position = chunk_end_position;
 
         // Start duration timer after first chunk arrives
         if (!timer_started && duration_seconds > 0) {
@@ -360,9 +392,20 @@ void Microphone::get_audio(std::string const& codec,
             final_chunk.info.num_channels = stream_num_channels;
             final_chunk.sequence_number = sequence++;
 
-            // Calculate timestamps for the flushed data
-            final_chunk.start_timestamp_ns = calculate_sample_timestamp(*stream_context, mp3_ctx.total_samples_encoded);
-            final_chunk.end_timestamp_ns = calculate_sample_timestamp(*stream_context, read_position);
+            int delay_samples = mp3_ctx.encoder_delay * stream_num_channels;
+
+            // There will be delay_samples flushed from the encoder buffer
+            uint64_t timestamp_start = last_chunk_end_position;
+            uint64_t timestamp_end = last_chunk_end_position + delay_samples;
+
+            VIAM_SDK_LOG(debug) << "Flush: last_chunk_end=" << last_chunk_end_position
+                              << " encoder_delay=" << mp3_ctx.encoder_delay << " samples (" << delay_samples << " total)"
+                              << " timestamp_start=" << timestamp_start
+                              << " timestamp_end=" << timestamp_end
+                              << " flush_duration_samples=" << (timestamp_end - timestamp_start);
+
+            final_chunk.start_timestamp_ns = calculate_sample_timestamp(*stream_context, timestamp_start);
+            final_chunk.end_timestamp_ns = calculate_sample_timestamp(*stream_context, timestamp_end);
 
             chunk_handler(std::move(final_chunk));
             VIAM_SDK_LOG(debug) << "Sent final MP3 flush chunk with " << final_data_size << " bytes";
@@ -391,7 +434,6 @@ viam::sdk::audio_properties Microphone::get_properties(const viam::sdk::ProtoStr
 std::vector<viam::sdk::GeometryConfig> Microphone::get_geometries(const viam::sdk::ProtoStruct& extra) {
     throw std::runtime_error("get_geometries is unimplemented");
 }
-
 
 
 void Microphone::setupStreamFromConfig(const ConfigParams& params) {
@@ -475,8 +517,7 @@ void Microphone::setupStreamFromConfig(const ConfigParams& params) {
 
     // Create new audio context
     vsdk::audio_info info{vsdk::audio_codecs::PCM_16, new_sample_rate, new_num_channels};
-    int samples_per_chunk = new_sample_rate * CHUNK_DURATION_SECONDS;  // 100ms chunks
-    auto new_audio_context = std::make_shared<AudioStreamContext>(info, samples_per_chunk);
+    auto new_audio_context = std::make_shared<AudioStreamContext>(info);
 
     // Set new configuration under lock (needed before openStream since it uses these)
     {
@@ -654,5 +695,7 @@ void Microphone::shutdownStream(PaStream* stream) {
         throw std::runtime_error(buffer.str());
     }
 }
+
+
 
 } // namespace microphone

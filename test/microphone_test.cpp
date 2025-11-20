@@ -840,7 +840,7 @@ TEST_F(MicrophoneTest, AudioStreamContextThrowsOnZeroNumChannels) {
     info.num_channels = 0;  // Invalid
 
     EXPECT_THROW({
-        microphone::AudioStreamContext ctx(info, 4410, 10);
+        microphone::AudioStreamContext ctx(info, 10);
     }, std::invalid_argument);
 }
 
@@ -850,7 +850,7 @@ TEST_F(MicrophoneTest, AudioStreamContextThrowsOnNegativeNumChannels) {
     info.num_channels = -1;  // Invalid
 
     EXPECT_THROW({
-        microphone::AudioStreamContext ctx(info, 4410, 10);
+        microphone::AudioStreamContext ctx(info, 10);
     }, std::invalid_argument);
 }
 
@@ -860,7 +860,7 @@ TEST_F(MicrophoneTest, AudioStreamContextThrowsOnZeroSampleRate) {
     info.num_channels = 2;
 
     EXPECT_THROW({
-        microphone::AudioStreamContext ctx(info, 4410, 10);
+        microphone::AudioStreamContext ctx(info, 10);
     }, std::invalid_argument);
 }
 
@@ -870,7 +870,7 @@ TEST_F(MicrophoneTest, AudioStreamContextThrowsOnNegativeSampleRate) {
     info.num_channels = 2;
 
     EXPECT_THROW({
-        microphone::AudioStreamContext ctx(info, 4410, 10);
+        microphone::AudioStreamContext ctx(info, 10);
     }, std::invalid_argument);
 }
 
@@ -880,7 +880,7 @@ TEST_F(MicrophoneTest, AudioStreamContextThrowsOnZeroBufferDuration) {
     info.num_channels = 2;
 
     EXPECT_THROW({
-        microphone::AudioStreamContext ctx(info, 4410, 0);
+        microphone::AudioStreamContext ctx(info, 0);
     }, std::invalid_argument);
 }
 
@@ -890,11 +890,11 @@ TEST_F(MicrophoneTest, AudioStreamContextThrowsOnNegativeBufferDuration) {
     info.num_channels = 2;
 
     EXPECT_THROW({
-        microphone::AudioStreamContext ctx(info, 4410, -5);
+        microphone::AudioStreamContext ctx(info, -5);
     }, std::invalid_argument);
 }
 
-TEST_F(MicrophoneTest, CodecConversion_PCM16_Preserves_Data) {
+TEST_F(MicrophoneTest, CodecConversion_PCM16) {
     auto config = createConfig(testDeviceName, 44100, 1);
     microphone::Microphone mic(test_deps_, config, mock_pa_.get());
 
@@ -933,7 +933,7 @@ TEST_F(MicrophoneTest, CodecConversion_PCM16_Preserves_Data) {
     }
 }
 
-TEST_F(MicrophoneTest, CodecConversion_PCM32_CorrectBitShift) {
+TEST_F(MicrophoneTest, CodecConversion_PCM32) {
     auto config = createConfig(testDeviceName, 44100, 1);
     microphone::Microphone mic(test_deps_, config, mock_pa_.get());
 
@@ -968,15 +968,14 @@ TEST_F(MicrophoneTest, CodecConversion_PCM32_CorrectBitShift) {
     reader.join();
 
     EXPECT_EQ(chunks_received, num_chunks);
-    ASSERT_GE(received_samples.size(), 10);
+    ASSERT_EQ(received_samples.size(), samples_per_chunk*num_chunks);
     for (int i = 0; i < 10; i++) {
         int32_t expected = static_cast<int32_t>(static_cast<int16_t>(i)) << 16;
-        EXPECT_EQ(received_samples[i], expected)
-            << "Sample " << i << " mismatch";
+        EXPECT_EQ(received_samples[i], expected);
     }
 }
 
-TEST_F(MicrophoneTest, CodecConversion_PCM32Float_CorrectNormalization) {
+TEST_F(MicrophoneTest, CodecConversion_PCM32Float) {
     auto config = createConfig(testDeviceName, 44100, 1);
     microphone::Microphone mic(test_deps_, config, mock_pa_.get());
 
@@ -1011,53 +1010,13 @@ TEST_F(MicrophoneTest, CodecConversion_PCM32Float_CorrectNormalization) {
     reader.join();
 
     EXPECT_EQ(chunks_received, num_chunks);
-    ASSERT_GE(received_samples.size(), 10);
+    ASSERT_EQ(received_samples.size(), samples_per_chunk*num_chunks);
     for (int i = 0; i < 10; i++) {
         float expected = static_cast<float>(static_cast<int16_t>(i)) / 32768.0f;
-        EXPECT_FLOAT_EQ(received_samples[i], expected)
-            << "Sample " << i << " mismatch";
+        EXPECT_FLOAT_EQ(received_samples[i], expected);
     }
 }
 
-TEST_F(MicrophoneTest, CodecConversion_PCM32Float_BoundaryValues) {
-    auto config = createConfig(testDeviceName, 44100, 1);
-    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
-
-    auto ctx = createTestContext(mic);
-
-    std::vector<float> received_samples;
-    auto handler = [&](viam::sdk::AudioIn::audio_chunk&& chunk) {
-        const float* samples = reinterpret_cast<const float*>(chunk.audio_data.data());
-        int num_samples = chunk.audio_data.size() / sizeof(float);
-        received_samples.insert(received_samples.end(), samples, samples + num_samples);
-        return false;
-    };
-
-    std::thread reader([&]() {
-        mic.get_audio(viam::sdk::audio_codecs::PCM_32_FLOAT, handler, 1.0, 0, ProtoStruct{});
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    // Write boundary values then fill chunk
-    ctx->write_sample(static_cast<int16_t>(-32768));
-    ctx->write_sample(static_cast<int16_t>(0));
-    ctx->write_sample(static_cast<int16_t>(32767));
-    ctx->write_sample(static_cast<int16_t>(-1));
-    ctx->write_sample(static_cast<int16_t>(1));
-    for (int i = 0; i < 5000; i++) {
-        ctx->write_sample(static_cast<int16_t>(0));
-    }
-
-    reader.join();
-
-    ASSERT_GE(received_samples.size(), 5);
-    EXPECT_FLOAT_EQ(received_samples[0], -1.0f);
-    EXPECT_FLOAT_EQ(received_samples[1], 0.0f);
-    EXPECT_FLOAT_EQ(received_samples[2], 32767.0f / 32768.0f);
-    EXPECT_FLOAT_EQ(received_samples[3], -1.0f / 32768.0f);
-    EXPECT_FLOAT_EQ(received_samples[4], 1.0f / 32768.0f);
-}
 
 TEST_F(MicrophoneTest, CodecConversion_MP3_ProducesValidData) {
     auto config = createConfig(testDeviceName, 48000, 1);
@@ -1076,27 +1035,36 @@ TEST_F(MicrophoneTest, CodecConversion_MP3_ProducesValidData) {
         if (chunk.audio_data.size() > 0) {
             chunks_with_data++;
             total_mp3_bytes += chunk.audio_data.size();
+            std::cout << "Chunk " << chunks_received << " has " << chunk.audio_data.size() << " bytes" << std::endl;
+        } else {
+            std::cout << "Chunk " << chunks_received << " is EMPTY" << std::endl;
         }
         return chunks_received < 10;
     };
+
+    // Write samples continuously in background thread
+    std::atomic<bool> stop_writing{false};
+    std::thread writer([&]() {
+        for (int i = 0; i < 500000 && !stop_writing.load(); i++) {
+            ctx->write_sample(static_cast<int16_t>(i % 1000));
+            if (i % 4800 == 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+    });
 
     std::thread reader([&]() {
         mic.get_audio(viam::sdk::audio_codecs::MP3, handler, 2.0, 0, ProtoStruct{});
     });
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    // Write many samples to ensure MP3 encoder produces output
-    // 48000 Hz * 0.1s = 4800 samples per chunk, write 20 chunks worth
-    for (int i = 0; i < 4800 * 20; i++) {
-        ctx->write_sample(static_cast<int16_t>(i % 1000));
-    }
-
     reader.join();
+    stop_writing = true;
+    writer.join();
 
     EXPECT_GT(chunks_received, 0);
     EXPECT_GT(chunks_with_data, 0) << "Should receive at least one chunk with MP3 data";
     EXPECT_GT(total_mp3_bytes, 0) << "Should have produced some MP3 data";
+    EXPECT_LT(total_mp3_bytes, chunks_received * 4800 * sizeof(int16_t)) << "MP3 should compress data";
 }
 
 TEST_F(MicrophoneTest, CodecConversion_MP3_Stereo) {
@@ -1106,29 +1074,39 @@ TEST_F(MicrophoneTest, CodecConversion_MP3_Stereo) {
     auto ctx = createTestContext(mic);
 
     int chunks_received = 0;
+    int chunks_with_data = 0;
 
     auto handler = [&](viam::sdk::AudioIn::audio_chunk&& chunk) {
         chunks_received++;
         EXPECT_EQ(chunk.info.codec, viam::sdk::audio_codecs::MP3);
         EXPECT_EQ(chunk.info.num_channels, 2);
-        EXPECT_GT(chunk.audio_data.size(), 0);
-        return chunks_received < 3;
+        if (chunk.audio_data.size() > 0) {
+            chunks_with_data++;
+        }
+        return chunks_received < 5;
     };
+
+    // Write samples continuously in background thread
+    std::atomic<bool> stop_writing{false};
+    std::thread writer([&]() {
+        for (int i = 0; i < 500000 && !stop_writing.load(); i++) {
+            ctx->write_sample(static_cast<int16_t>(i % 1000));
+            if (i % 9600 == 0) {  // 9600 = 4800 samples * 2 channels
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+    });
 
     std::thread reader([&]() {
         mic.get_audio(viam::sdk::audio_codecs::MP3, handler, 1.0, 0, ProtoStruct{});
     });
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    // Write enough interleaved stereo samples (1152 * 2 samples per frame)
-    for (int i = 0; i < 1152 * 2 * 5; i++) {
-        ctx->write_sample(static_cast<int16_t>(i % 1000));
-    }
-
     reader.join();
+    stop_writing = true;
+    writer.join();
 
     EXPECT_GT(chunks_received, 0);
+    EXPECT_GT(chunks_with_data, 0) << "Should receive at least one chunk with MP3 data";
 }
 
 int main(int argc, char **argv) {

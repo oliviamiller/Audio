@@ -9,12 +9,10 @@ namespace microphone {
 
 AudioStreamContext::AudioStreamContext(
     const vsdk::audio_info& audio_info,
-    int samples_per_chunk,
     int buffer_duration_seconds)
     : audio_buffer(nullptr)
     , buffer_capacity(0)
     , info(audio_info)
-    , samples_per_chunk(samples_per_chunk)
     , stream_start_time()
     , first_sample_adc_time(0.0)
     , first_callback_captured(false)
@@ -180,6 +178,35 @@ std::chrono::nanoseconds calculate_sample_timestamp(
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
         absolute_time.time_since_epoch()
     );
+}
+
+int calculate_aligned_chunk_size(int sample_rate, int num_channels) {
+    // MP3 frames are 1152 samples per channel
+    // Calculate how many frames fit into approximately 100-200ms
+    // Target: around 150ms for reasonable latency
+
+    double target_duration_seconds = 0.15;  // 150ms target
+    double samples_per_channel_target = sample_rate * target_duration_seconds;
+
+    // Round to nearest number of MP3 frames
+    int num_frames = static_cast<int>(samples_per_channel_target / MP3_FRAME_SIZE + 0.5);
+
+    // Ensure at least 1 frame
+    if (num_frames < 1) {
+        num_frames = 1;
+    }
+
+    // Calculate total samples including all channels
+    int samples_per_channel = num_frames * MP3_FRAME_SIZE;
+    int total_samples = samples_per_channel * num_channels;
+
+    double actual_duration = static_cast<double>(samples_per_channel) / sample_rate;
+    VIAM_SDK_LOG(info) << "Calculated aligned chunk size: " << total_samples
+                       << " samples (" << num_frames << " MP3 frames, "
+                       << actual_duration * 1000.0 << "ms, "
+                       << sample_rate << "Hz, " << num_channels << " channels)";
+
+    return total_samples;
 }
 
 } // namespace microphone

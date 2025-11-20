@@ -13,7 +13,7 @@ namespace microphone {
 namespace vsdk = ::viam::sdk;
 
 constexpr int BUFFER_DURATION_SECONDS = 10;  // How much audio history to keep in buffer
-constexpr double CHUNK_DURATION_SECONDS = 0.1;   // 100ms chunks (10 chunks per second)
+constexpr int MP3_FRAME_SIZE = 1152;  // Standard MP3 frame size (samples per channel)
 constexpr uint64_t NANOSECONDS_PER_SECOND = 1000000000ULL;
 
 // AudioStreamContext managers a circular buffer of audio for a single
@@ -25,7 +25,6 @@ struct AudioStreamContext {
     int buffer_capacity;
 
     vsdk::audio_info info;
-    int samples_per_chunk;
 
     std::chrono::system_clock::time_point stream_start_time;
     double first_sample_adc_time;
@@ -34,7 +33,6 @@ struct AudioStreamContext {
     std::atomic<uint64_t> total_samples_written;
 
     AudioStreamContext(const vsdk::audio_info& audio_info,
-                      int samples_per_chunk,
                       int buffer_duration_seconds = BUFFER_DURATION_SECONDS);
 
     // Writes an audio sample to the audio buffer
@@ -50,6 +48,10 @@ struct AudioStreamContext {
 std::chrono::nanoseconds calculate_sample_timestamp(
     const AudioStreamContext& ctx,
     uint64_t sample_number);
+
+// Calculate chunk size aligned to MP3 frame boundaries
+// Returns the number of samples (including all channels) for an optimal chunk size
+int calculate_aligned_chunk_size(int sample_rate, int num_channels);
 
 /**
  * PortAudio callback function - runs on real-time audio thread.
