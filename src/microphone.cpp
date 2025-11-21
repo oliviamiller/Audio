@@ -128,7 +128,7 @@ void Microphone::get_audio(std::string const& codec,
                            int64_t const& previous_timestamp,
                            const viam::sdk::ProtoStruct& extra) {
 
-    VIAM_SDK_LOG(info) << "get_audio called";
+    VIAM_SDK_LOG(debug) << "get_audio called";
 
     // Validate codec is supported
     if (codec != vsdk::audio_codecs::PCM_16) {
@@ -256,7 +256,7 @@ void Microphone::get_audio(std::string const& codec,
         }
     }
 
-    VIAM_SDK_LOG(info) << "get_audio stream completed";
+    VIAM_SDK_LOG(debug) << "get_audio stream completed";
 
     {
         std::lock_guard<std::mutex> lock(stream_ctx_mu_);
