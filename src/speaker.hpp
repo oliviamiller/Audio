@@ -54,7 +54,7 @@ public:
 
     viam::sdk::ProtoStruct do_command(const viam::sdk::ProtoStruct& command);
 
-    
+
     void play(std::vector<uint8_t> const& audio_data,
                       boost::optional<viam::sdk::audio_info> info,
                       const viam::sdk::ProtoStruct& extra);

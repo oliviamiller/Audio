@@ -117,7 +117,6 @@ void AudioBuffer::reset() noexcept {
     }
 }
 
-// InputStreamContext implementation
 InputStreamContext::InputStreamContext(
     const vsdk::audio_info& audio_info,
     int samples_per_chunk,
@@ -130,7 +129,6 @@ InputStreamContext::InputStreamContext(
 {
 }
 
-// OutputStreamContext implementation
 OutputStreamContext::OutputStreamContext(
     const vsdk::audio_info& audio_info,
     int buffer_duration_seconds)

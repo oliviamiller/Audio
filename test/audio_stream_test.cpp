@@ -20,7 +20,6 @@ private:
 };
 
 
-
 class AudioBufferTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -119,8 +118,6 @@ TEST_F(AudioBufferTest, ConcurrentWriteAndRead) {
     EXPECT_EQ(read_total.load(), total_samples);
 }
 
-
-
 TEST_F(AudioBufferTest, ReadMoreThanAvailable) {
     // Write only 50 samples
     const int num_samples = 50;
@@ -154,8 +151,6 @@ TEST_F(AudioBufferTest, ReadSampleNotYetWritten) {
     EXPECT_EQ(samples_read, 0);
     EXPECT_EQ(read_pos, 100);
 }
-
-
 
 class InputStreamTestEnvironment : public ::testing::Environment {
 public:
@@ -253,9 +248,183 @@ TEST_F(InputStreamContextTest, CalculateSampleTimestamp) {
 
     // Test timestamp for sample at 0.5 seconds (22050 samples)
     auto timestamp3 = ::microphone::calculate_sample_timestamp(*context_, 22050);
-    EXPECT_NEAR(timestamp3.count(), baseline_ns + 500'000'000, 1000);  // ~0.5 seconds
+    EXPECT_NEAR(timestamp3.count(), baseline_ns + 500'000'000, 1000);
 }
 
+// OutputStreamContext tests
+class OutputStreamContextTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        audio_info info{viam::sdk::audio_codecs::PCM_16, 48000, 2};
+        context_ = std::make_unique<OutputStreamContext>(info, 30);  // 30 second buffer
+    }
+
+    void TearDown() override {
+        context_.reset();
+    }
+
+    std::unique_ptr<audio::OutputStreamContext> context_;
+};
+
+TEST_F(OutputStreamContextTest, PlaybackPositionInitializedToZero) {
+    EXPECT_EQ(context_->playback_position.load(), 0);
+}
+
+TEST_F(OutputStreamContextTest, WriteAndReadWithPlaybackPosition) {
+    const int num_samples = 500;
+    for (int i = 0; i < num_samples; i++) {
+        context_->write_sample(static_cast<int16_t>(i));
+    }
+    std::vector<int16_t> buffer(num_samples);
+    uint64_t playback_pos = context_->playback_position.load();
+    EXPECT_EQ(playback_pos, 0);
+
+    int samples_read = context_->read_samples(buffer.data(), num_samples, playback_pos);
+    EXPECT_EQ(samples_read, num_samples);
+
+    context_->playback_position.store(playback_pos);
+    EXPECT_EQ(context_->playback_position.load(), num_samples);
+}
+
+TEST_F(OutputStreamContextTest, PlaybackPositionTracksProgress) {
+    const int total_samples = 1000;
+    for (int i = 0; i < total_samples; i++) {
+        context_->write_sample(static_cast<int16_t>(i));
+    }
+
+    std::vector<int16_t> buffer(100);
+    uint64_t playback_pos = context_->playback_position.load();
+
+    for (int chunk = 0; chunk < 3; chunk++) {
+        int samples_read = context_->read_samples(buffer.data(), 100, playback_pos);
+        EXPECT_EQ(samples_read, 100);
+        context_->playback_position.store(playback_pos);
+    }
+
+    EXPECT_EQ(context_->playback_position.load(), 300);
+}
+
+TEST_F(OutputStreamContextTest, MultipleReadersWithSharedPlaybackPosition) {
+    const int num_samples = 200;
+    for (int i = 0; i < num_samples; i++) {
+        context_->write_sample(static_cast<int16_t>(i * 10));
+    }
+
+    std::vector<int16_t> buffer1(100);
+    uint64_t playback_pos = context_->playback_position.load();
+    int samples_read1 = context_->read_samples(buffer1.data(), 100, playback_pos);
+    context_->playback_position.store(playback_pos);
+
+    EXPECT_EQ(samples_read1, 100);
+    EXPECT_EQ(context_->playback_position.load(), 100);
+
+    std::vector<int16_t> buffer2(100);
+    playback_pos = context_->playback_position.load();
+    int samples_read2 = context_->read_samples(buffer2.data(), 100, playback_pos);
+    context_->playback_position.store(playback_pos);
+
+    EXPECT_EQ(samples_read2, 100);
+    EXPECT_EQ(context_->playback_position.load(), 200);
+
+    EXPECT_EQ(buffer1[0], 0);
+    EXPECT_EQ(buffer2[0], 1000);
+}
+
+TEST_F(OutputStreamContextTest, OutputStreamContextThrowsOnZeroNumChannels) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, 48000, 0};
+
+    EXPECT_THROW({
+        audio::OutputStreamContext ctx(info, 30);
+    }, std::invalid_argument);
+}
+
+TEST_F(OutputStreamContextTest, OutputStreamContextThrowsOnNegativeNumChannels) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, 48000, -1};
+
+    EXPECT_THROW({
+        audio::OutputStreamContext ctx(info, 30);
+    }, std::invalid_argument);
+}
+
+TEST_F(OutputStreamContextTest, OutputStreamContextThrowsOnZeroSampleRate) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, 0, 2};
+
+    EXPECT_THROW({
+        audio::OutputStreamContext ctx(info, 30);
+    }, std::invalid_argument);
+}
+
+TEST_F(OutputStreamContextTest, OutputStreamContextThrowsOnNegativeSampleRate) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, -48000, 2};
+
+    EXPECT_THROW({
+        audio::OutputStreamContext ctx(info, 30);
+    }, std::invalid_argument);
+}
+
+TEST_F(OutputStreamContextTest, OutputStreamContextThrowsOnZeroBufferDuration) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, 48000, 2};
+
+    EXPECT_THROW({
+        audio::OutputStreamContext ctx(info, 0);
+    }, std::invalid_argument);
+}
+
+TEST_F(OutputStreamContextTest, OutputStreamContextThrowsOnNegativeBufferDuration) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, 48000, 2};
+
+    EXPECT_THROW({
+        audio::OutputStreamContext ctx(info, -10);
+    }, std::invalid_argument);
+}
+
+TEST_F(InputStreamContextTest, InputStreamContextThrowsOnZeroNumChannels) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, 44100, 0};
+
+    EXPECT_THROW({
+        audio::InputStreamContext ctx(info, 4410, 10);
+    }, std::invalid_argument);
+}
+
+TEST_F(InputStreamContextTest, InputStreamContextThrowsOnNegativeNumChannels) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, 44100, -1};
+
+    EXPECT_THROW({
+        audio::InputStreamContext ctx(info, 4410, 10);
+    }, std::invalid_argument);
+}
+
+TEST_F(InputStreamContextTest, InputStreamContextThrowsOnZeroSampleRate) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, 0, 2};
+
+    EXPECT_THROW({
+        audio::InputStreamContext ctx(info, 4410, 10);
+    }, std::invalid_argument);
+}
+
+TEST_F(InputStreamContextTest, InputStreamContextThrowsOnNegativeSampleRate) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, -44100, 2};
+
+    EXPECT_THROW({
+        audio::InputStreamContext ctx(info, 4410, 10);
+    }, std::invalid_argument);
+}
+
+TEST_F(InputStreamContextTest, InputStreamContextThrowsOnZeroBufferDuration) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, 44100, 2};
+
+    EXPECT_THROW({
+        audio::InputStreamContext ctx(info, 4410, 0);
+    }, std::invalid_argument);
+}
+
+TEST_F(InputStreamContextTest, InputStreamContextThrowsOnNegativeBufferDuration) {
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, 44100, 2};
+
+    EXPECT_THROW({
+        audio::InputStreamContext ctx(info, 4410, -5);
+    }, std::invalid_argument);
+}
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);

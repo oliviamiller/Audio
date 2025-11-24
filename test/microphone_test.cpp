@@ -782,68 +782,6 @@ TEST_F(MicrophoneTest, TestOpenStreamFails) {
     EXPECT_THROW(mic.openStream(stream), std::runtime_error);
 }
 
-// // InputStreamContext validation tests
-// TEST_F(MicrophoneTest, InputStreamContextThrowsOnZeroNumChannels) {
-//     viam::sdk::audio_info info;
-//     info.sample_rate_hz = 44100;
-//     info.num_channels = 0;  // Invalid
-
-//     EXPECT_THROW({
-//         microphone::InputStreamContext ctx(info, 4410, 10);
-//     }, std::invalid_argument);
-// }
-
-// TEST_F(MicrophoneTest, InputStreamContextThrowsOnNegativeNumChannels) {
-//     viam::sdk::audio_info info;
-//     info.sample_rate_hz = 44100;
-//     info.num_channels = -1;  // Invalid
-
-//     EXPECT_THROW({
-//         audio::InputStreamContext ctx(info, 4410, 10);
-//     }, std::invalid_argument);
-// }
-
-// TEST_F(MicrophoneTest, InputStreamContextThrowsOnZeroSampleRate) {
-//     viam::sdk::audio_info info;
-//     info.sample_rate_hz = 0;  // Invalid
-//     info.num_channels = 2;
-
-//     EXPECT_THROW({
-//         microphone::InputStreamContext ctx(info, 4410, 10);
-//     }, std::invalid_argument);
-// }
-
-// TEST_F(MicrophoneTest, InputStreamContextThrowsOnNegativeSampleRate) {
-//     viam::sdk::audio_info info;
-//     info.sample_rate_hz = -44100;  // Invalid
-//     info.num_channels = 2;
-
-//     EXPECT_THROW({
-//         microphone::InputStreamContext ctx(info, 4410, 10);
-//     }, std::invalid_argument);
-// }
-
-// TEST_F(MicrophoneTest, InputStreamContextThrowsOnZeroBufferDuration) {
-//     viam::sdk::audio_info info;
-//     info.sample_rate_hz = 44100;
-//     info.num_channels = 2;
-
-//     EXPECT_THROW({
-//         audio::InputStreamContext ctx(info, 4410, 0);
-//     }, std::invalid_argument);
-// }
-
-// TEST_F(MicrophoneTest, InputStreamContextThrowsOnNegativeBufferDuration) {
-//     viam::sdk::audio_info info;
-//     info.sample_rate_hz = 44100;
-//     info.num_channels = 2;
-
-//     EXPECT_THROW({
-//         microphone::InputStreamContext ctx(info, 4410, -5);
-//     }, std::invalid_argument);
-// }
-
-
  class AudioCallbackTest : public ::testing::Test {
   protected:
       void SetUp() override {

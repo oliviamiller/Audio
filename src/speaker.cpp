@@ -5,6 +5,7 @@
 #include <viam/sdk/components/audio_out.hpp>
 #include <cstring>
 #include <stdexcept>
+#include <thread>
 
 namespace speaker {
 namespace vsdk = ::viam::sdk;
@@ -151,11 +152,9 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
 
     VIAM_SDK_LOG(info) << "Play called, adding samples to playback buffer";
 
-    // Validate codec if provided
     if (info && info->codec != vsdk::audio_codecs::PCM_16) {
-        VIAM_SDK_LOG(error) << "Unsupported codec: " << info->codec
-                           << ". Only PCM_16 is supported";
-        throw std::invalid_argument("Unsupported codec. Only PCM_16 is supported");
+        VIAM_SDK_LOG(error) << "unsupported codec: " << info->codec << " only PCM_16 is supported";
+        throw std::invalid_argument("Audio codec must be PCM_16 format");
     }
 
     // Convert uint8_t bytes to int16_t samples
@@ -192,7 +191,6 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
       }
 
       VIAM_SDK_LOG(info) << "Audio playback complete";
-  }
 }
 
 viam::sdk::audio_properties Speaker::get_properties(const vsdk::ProtoStruct& extra) {
@@ -215,6 +213,56 @@ std::vector<viam::sdk::GeometryConfig> Speaker::get_geometries(const viam::sdk::
 
 void Speaker::reconfigure(const vsdk::Dependencies& deps,
                           const vsdk::ResourceConfig& cfg) {
+
+    VIAM_SDK_LOG(info) << "[reconfigure] Speaker reconfigure start";
+
+    try {
+        auto cfg_params = audio::utils::parseConfigAttributes(cfg);
+
+        auto params = audio::utils::setupStreamFromConfig(
+            cfg_params,
+            audio::utils::StreamDirection::Output,
+            speakerCallback,
+            pa_
+        );
+
+        // Create audio context with actual sample rate/channels from params
+        vsdk::audio_info info{vsdk::audio_codecs::PCM_16, params.sample_rate, params.num_channels};
+        int samples_per_chunk = params.sample_rate * audio::CHUNK_DURATION_SECONDS;
+        auto new_audio_context = std::make_shared<audio::OutputStreamContext>(info, samples_per_chunk);
+
+        // Set user_data to point to the audio context
+        params.user_data = new_audio_context.get();
+
+        // Check if there's unplayed audio
+        if (audio_context_) {
+            uint64_t write_pos = audio_context_->get_write_position();
+            uint64_t playback_pos = audio_context_->playback_position.load();
+            if (write_pos > playback_pos) {
+                uint64_t unplayed_samples = write_pos - playback_pos;
+                double unplayed_seconds = static_cast<double>(unplayed_samples) /
+                                        (audio_context_->info.sample_rate_hz * audio_context_->info.num_channels);
+                VIAM_SDK_LOG(warn) << "[reconfigure] Discarding " << unplayed_seconds
+                                    << " seconds of unplayed audio";
+            }
+    }
+
+        // Set new configuration and restart stream under lock
+        {
+            std::lock_guard<std::mutex> lock(stream_mu_);
+            device_name_ = params.device_name;
+            sample_rate_ = params.sample_rate;
+            num_channels_ = params.num_channels;
+            latency_ = params.latency_seconds;
+            audio_context_ = new_audio_context;
+
+            audio::utils::restart_stream(stream_, params, pa_);
+        }
+        VIAM_SDK_LOG(info) << "[reconfigure] Reconfigure completed successfully";
+    } catch (const std::exception& e) {
+        VIAM_SDK_LOG(error) << "[reconfigure] Reconfigure failed: " << e.what();
+        throw;
+    }
 
 }
 
