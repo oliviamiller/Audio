@@ -256,7 +256,6 @@ void Microphone::get_audio(std::string const& codec,
                 chunk_handler(std::move(chunk));
                 break;
             }
-        }
 
         if (!chunk_handler(std::move(chunk))) {
             // if the chunk callback returned false, the stream has ended

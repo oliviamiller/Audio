@@ -21,9 +21,9 @@ function(audio_add_gtest SOURCE_FILE_NAME)
         GTest::gtest_main
         GTest::gmock
         viam-cpp-sdk::viamsdk
-        ${PORTAUDIO_LIBRARIES}
-        Boost::boost
+        ${PORTAUDIO_STATIC_LIB}
     )
+
     target_include_directories(${TEST_EXECUTABLE_NAME} PRIVATE
         ${PORTAUDIO_INCLUDE_DIRS}
         ${CMAKE_SOURCE_DIR}/src
