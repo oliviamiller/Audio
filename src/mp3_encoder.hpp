@@ -40,7 +40,6 @@ struct MP3EncoderContext {
     // LAME encoder delay (samples per channel added at start)
     int encoder_delay = 0;
 
-    // Actual frame size LAME is using (1152 for MPEG-1, 576 for MPEG-2/2.5)
     int frame_size = 0;
 };
 
