@@ -663,13 +663,6 @@ void Microphone::openStream(PaStream** stream) {
     audio::portaudio::RealPortAudio real_pa;
     const audio::portaudio::PortAudioInterface& audio_interface = pa_ ? *pa_ : real_pa;
 
-
-    VIAM_SDK_LOG(debug) << "Opening stream for device '" << device_name_
-                         << "' (index " << device_index_ << ")"
-                         << " with sample rate: " << sample_rate_
-                         << ", channels: " << num_channels_;
-
-
     // Setup stream parameters
     PaStreamParameters params;
     params.device = device_index_;
@@ -698,6 +691,7 @@ void Microphone::openStream(PaStream** stream) {
      VIAM_SDK_LOG(info) << "Opening stream for device '" << device_name_
                        << "' (index " << device_index_ << ")"
                        << " with sample rate " << sample_rate_
+                       << ", channels: " << num_channels_;
                        << " and latency " << params.suggestedLatency << " seconds";
 
     err = audio_interface.openStream(
