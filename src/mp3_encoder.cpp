@@ -119,6 +119,7 @@ void encode_samples_to_mp3(MP3EncoderContext& ctx,
                 output_data.data() + current_size, // write new data starting at the end of the buffer
                 mp3buf_size
             );
+            break;
         case 2:
             bytes_written = lame_encode_buffer_interleaved(
                 ctx.encoder.get(),
