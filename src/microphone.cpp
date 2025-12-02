@@ -371,6 +371,7 @@ void Microphone::get_audio(std::string const& codec,
                         VIAM_SDK_LOG(error) << buffer.str();
                         throw std::runtime_error(buffer.str());
                     }
+                    stream_historical_throttle_ms = historical_throttle_ms_;
                 }
                 // Switch to new context and reset read position
                 stream_context = audio_context_;
@@ -471,7 +472,7 @@ void Microphone::get_audio(std::string const& codec,
 
     // Flush MP3 encoder at end of the stream to ensure all recorded audio
     // is returned
-    if (codec == vsdk::audio_codecs::MP3 && mp3_ctx.encoder) {
+    if (codec_enum  == AudioCodec::MP3 && mp3_ctx.encoder) {
         std::vector<uint8_t> final_data;
         flush_mp3_encoder(mp3_ctx, final_data);
 
@@ -486,7 +487,7 @@ void Microphone::get_audio(std::string const& codec,
 
 
             // Since our chunk sizes are aligned with the frame size,
-            //t here will be delay_samples flushed from the encoder buffer
+            //there will be delay_samples flushed from the encoder buffer
             int delay_samples = mp3_ctx.encoder_delay * stream_num_channels;
             uint64_t timestamp_start = last_chunk_end_position;
             uint64_t timestamp_end = last_chunk_end_position + delay_samples;
