@@ -174,33 +174,25 @@ Microphone::Microphone(viam::sdk::Dependencies deps, viam::sdk::ResourceConfig c
                        audio::portaudio::PortAudioInterface* pa)
     : viam::sdk::AudioIn(cfg.name()), stream_(nullptr), pa_(pa), active_streams_(0) {
 
-    audio::utils::ConfigParams cfg_params = audio::utils::parseConfigAttributes(cfg);
-
-    audio::utils::StreamParams stream_params = audio::utils::setupStreamFromConfig(
-        cfg_params,
+    auto setup = audio::utils::setup_audio_device<audio::InputStreamContext>(
+        cfg,
         audio::utils::StreamDirection::Input,
         AudioCallback,
         pa_
     );
 
-    vsdk::audio_info info{vsdk::audio_codecs::PCM_16, stream_params.sample_rate, stream_params.num_channels};
-    auto new_audio_context = std::make_shared<audio::InputStreamContext>(info);
-
-    // Set user_data to point to the audio context
-    stream_params.user_data = new_audio_context.get();
-
     // Set new configuration and start stream under lock
     {
         std::lock_guard<std::mutex> lock(stream_ctx_mu_);
-        device_name_ = stream_params.device_name;
-        device_index_ = stream_params.device_index;
-        sample_rate_ = stream_params.sample_rate;
-        num_channels_ = stream_params.num_channels;
-        latency_ = stream_params.latency_seconds;
-        audio_context_ = new_audio_context;
-        historical_throttle_ms_ = cfg_params.historical_throttle_ms.value_or(DEFAULT_HISTORICAL_THROTTLE_MS);
+        device_name_ = setup.stream_params.device_name;
+        device_index_ = setup.stream_params.device_index;
+        sample_rate_ = setup.stream_params.sample_rate;
+        num_channels_ = setup.stream_params.num_channels;
+        latency_ = setup.stream_params.latency_seconds;
+        audio_context_ = setup.audio_context;
+        historical_throttle_ms_ = setup.config_params.historical_throttle_ms.value_or(DEFAULT_HISTORICAL_THROTTLE_MS);
 
-        audio::utils::restart_stream(stream_, stream_params, pa_);
+        audio::utils::restart_stream(stream_, setup.stream_params, pa_);
     }
 }
 
@@ -299,34 +291,25 @@ void Microphone::reconfigure(const viam::sdk::Dependencies& deps, const viam::sd
         }
 
 
-        auto cfg_params = audio::utils::parseConfigAttributes(cfg);
-
-        auto params = audio::utils::setupStreamFromConfig(
-            cfg_params,
+        auto setup = audio::utils::setup_audio_device<audio::InputStreamContext>(
+            cfg,
             audio::utils::StreamDirection::Input,
             AudioCallback,
             pa_
         );
 
-        // Create audio context with actual sample rate/channels from params
-        vsdk::audio_info info{vsdk::audio_codecs::PCM_16, params.sample_rate, params.num_channels};
-        auto new_audio_context = std::make_shared<audio::InputStreamContext>(info);
-
-        // Set user_data to point to the audio context
-        params.user_data = new_audio_context.get();
-
         // Set new configuration and restart stream under lock
         {
             std::lock_guard<std::mutex> lock(stream_ctx_mu_);
-            device_name_ = params.device_name;
-            device_index_ = params.device_index;
-            sample_rate_ = params.sample_rate;
-            num_channels_ = params.num_channels;
-            latency_ = params.latency_seconds;
-            audio_context_ = new_audio_context;
-            historical_throttle_ms_ = cfg_params.historical_throttle_ms.value_or(DEFAULT_HISTORICAL_THROTTLE_MS);
+            device_name_ = setup.stream_params.device_name;
+            device_index_ = setup.stream_params.device_index;
+            sample_rate_ = setup.stream_params.sample_rate;
+            num_channels_ = setup.stream_params.num_channels;
+            latency_ = setup.stream_params.latency_seconds;
+            audio_context_ = setup.audio_context;
+            historical_throttle_ms_ = setup.config_params.historical_throttle_ms.value_or(DEFAULT_HISTORICAL_THROTTLE_MS);
 
-            audio::utils::restart_stream(stream_, params, pa_);
+            audio::utils::restart_stream(stream_, setup.stream_params, pa_);
         }
         VIAM_SDK_LOG(info) << "[reconfigure] Reconfigure completed successfully";
     } catch (const std::exception& e) {
@@ -442,7 +425,6 @@ void Microphone::get_audio(std::string const& codec,
                         VIAM_SDK_LOG(error) << buffer.str();
                         throw std::runtime_error(buffer.str());
                     }
-                    stream_historical_throttle_ms = historical_throttle_ms_;
                 }
                 // Switch to new context and reset read position
                 stream_context = audio_context_;

@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <sstream>
+#include <viam/sdk/components/audio_out.hpp>
 
 namespace audio {
 namespace utils {
@@ -298,6 +299,48 @@ inline void restart_stream(
         stream = nullptr;
         throw;
     }
+}
+
+// Result of audio device setup - contains everything needed for initialization
+template<typename ContextType>
+struct AudioDeviceSetup {
+    ConfigParams config_params;
+    StreamParams stream_params;
+    std::shared_ptr<ContextType> audio_context;
+};
+
+// Helper function to setup an audio device (microphone or speaker)
+// Handles common initialization: config parsing, stream setup, context creation
+template<typename ContextType>
+inline AudioDeviceSetup<ContextType> setup_audio_device(
+    const viam::sdk::ResourceConfig& cfg,
+    StreamDirection direction,
+    PaStreamCallback* callback,
+    const audio::portaudio::PortAudioInterface* pa,
+    int buffer_duration_seconds = 30)
+{
+    AudioDeviceSetup<ContextType> setup;
+
+    setup.config_params = parseConfigAttributes(cfg);
+
+    setup.stream_params = setupStreamFromConfig(
+        setup.config_params,
+        direction,
+        callback,
+        pa
+    );
+
+    viam::sdk::audio_info info{
+        viam::sdk::audio_codecs::PCM_16,
+        setup.stream_params.sample_rate,
+        setup.stream_params.num_channels
+    };
+    setup.audio_context = std::make_shared<ContextType>(info, buffer_duration_seconds);
+
+    // Set user_data to point to the audio context
+    setup.stream_params.user_data = setup.audio_context.get();
+
+    return setup;
 }
 
 } // namespace utils

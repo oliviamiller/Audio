@@ -14,30 +14,25 @@ namespace vsdk = ::viam::sdk;
 Speaker::Speaker(viam::sdk::Dependencies deps, viam::sdk::ResourceConfig cfg,
                        audio::portaudio::PortAudioInterface* pa)
     : viam::sdk::AudioOut(cfg.name()), pa_(pa), stream_(nullptr) {
-        auto params = audio::utils::parseConfigAttributes(cfg);
-        auto stream_params = audio::utils::setupStreamFromConfig(params,
-                            audio::utils::StreamDirection::Output,
-                            speakerCallback,
-                            pa_);
 
-    // Create audio context with actual sample rate/channels from params
-    vsdk::audio_info info{vsdk::audio_codecs::PCM_16, stream_params.sample_rate, stream_params.num_channels};
-    auto new_audio_context = std::make_shared<audio::OutputStreamContext>(info, 30);  // 30 second buffer for speaker
-
-    // Set user_data to point to the audio context
-    stream_params.user_data = new_audio_context.get();
+    auto setup = audio::utils::setup_audio_device<audio::OutputStreamContext>(
+        cfg,
+        audio::utils::StreamDirection::Output,
+        speakerCallback,
+        pa_,
+        30  // 30 second buffer for speaker
+    );
 
     // Set new configuration and start stream under lock
     {
         std::lock_guard<std::mutex> lock(stream_mu_);
-        sample_rate_ = stream_params.sample_rate;
-        num_channels_ = stream_params.num_channels;
-        latency_ = stream_params.latency_seconds;
-        audio_context_ = new_audio_context;
-        audio::utils::restart_stream(stream_, stream_params, pa_);
+        device_name_ = setup.stream_params.device_name;
+        sample_rate_ = setup.stream_params.sample_rate;
+        num_channels_ = setup.stream_params.num_channels;
+        latency_ = setup.stream_params.latency_seconds;
+        audio_context_ = setup.audio_context;
+        audio::utils::restart_stream(stream_, setup.stream_params, pa_);
     }
-
-
 }
 
 Speaker::~Speaker() {
@@ -155,6 +150,27 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
         throw std::invalid_argument("Audio codec must be PCM16 format");
     }
 
+    // Validate sample rate and channels match speaker configuration
+    if (info) {
+        std::lock_guard<std::mutex> lock(stream_mu_);
+        if (info->sample_rate_hz != sample_rate_) {
+            VIAM_SDK_LOG(error) << "Sample rate mismatch: speaker is configured for "
+                               << sample_rate_ << "Hz but audio is " << info->sample_rate_hz << "Hz";
+            throw std::invalid_argument(
+                "Sample rate mismatch: speaker is " + std::to_string(sample_rate_) +
+                "Hz but audio is " + std::to_string(info->sample_rate_hz) + "Hz"
+            );
+        }
+        if (info->num_channels != num_channels_) {
+            VIAM_SDK_LOG(error) << "Channel count mismatch: speaker is configured for "
+                               << num_channels_ << " channels but audio has " << info->num_channels << " channels";
+            throw std::invalid_argument(
+                "Channel count mismatch: speaker has " + std::to_string(num_channels_) +
+                " channels but audio has " + std::to_string(info->num_channels) + " channels"
+            );
+        }
+    }
+
     // Convert uint8_t bytes to int16_t samples
     // PCM_16 means each sample is 2 bytes (16 bits)
     if (audio_data.size() % 2 != 0) {
@@ -215,24 +231,7 @@ void Speaker::reconfigure(const vsdk::Dependencies& deps,
     VIAM_SDK_LOG(info) << "[reconfigure] Speaker reconfigure start";
 
     try {
-        auto cfg_params = audio::utils::parseConfigAttributes(cfg);
-
-        auto params = audio::utils::setupStreamFromConfig(
-            cfg_params,
-            audio::utils::StreamDirection::Output,
-            speakerCallback,
-            pa_
-        );
-
-        // Create audio context with actual sample rate/channels from params
-        vsdk::audio_info info{vsdk::audio_codecs::PCM_16, params.sample_rate, params.num_channels};
-        int samples_per_chunk = params.sample_rate * audio::CHUNK_DURATION_SECONDS;
-        auto new_audio_context = std::make_shared<audio::OutputStreamContext>(info, samples_per_chunk);
-
-        // Set user_data to point to the audio context
-        params.user_data = new_audio_context.get();
-
-        // Check if there's unplayed audio
+        // Check if there's unplayed audio before reconfiguring
         if (audio_context_) {
             uint64_t write_pos = audio_context_->get_write_position();
             uint64_t playback_pos = audio_context_->playback_position.load();
@@ -243,18 +242,26 @@ void Speaker::reconfigure(const vsdk::Dependencies& deps,
                 VIAM_SDK_LOG(warn) << "[reconfigure] Discarding " << unplayed_seconds
                                     << " seconds of unplayed audio";
             }
-    }
+        }
+
+        auto setup = audio::utils::setup_audio_device<audio::OutputStreamContext>(
+            cfg,
+            audio::utils::StreamDirection::Output,
+            speakerCallback,
+            pa_,
+            30  // 30 second buffer for speaker
+        );
 
         // Set new configuration and restart stream under lock
         {
             std::lock_guard<std::mutex> lock(stream_mu_);
-            device_name_ = params.device_name;
-            sample_rate_ = params.sample_rate;
-            num_channels_ = params.num_channels;
-            latency_ = params.latency_seconds;
-            audio_context_ = new_audio_context;
+            device_name_ = setup.stream_params.device_name;
+            sample_rate_ = setup.stream_params.sample_rate;
+            num_channels_ = setup.stream_params.num_channels;
+            latency_ = setup.stream_params.latency_seconds;
+            audio_context_ = setup.audio_context;
 
-            audio::utils::restart_stream(stream_, params, pa_);
+            audio::utils::restart_stream(stream_, setup.stream_params, pa_);
         }
         VIAM_SDK_LOG(info) << "[reconfigure] Reconfigure completed successfully";
     } catch (const std::exception& e) {

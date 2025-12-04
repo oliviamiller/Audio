@@ -12,6 +12,7 @@
 #include <vector>
 #include <mutex>
 #include <atomic>
+#include <optional>
 
 namespace speaker {
 namespace vsdk = ::viam::sdk;
