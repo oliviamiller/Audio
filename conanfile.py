@@ -43,7 +43,8 @@ class audio(ConanFile):
 
     def requirements(self):
         # NOTE: If you update the `viam-cpp-sdk` dependency here, it
-        # should also be updated in `bin/setup.{sh,ps1}`.
+        # should also be updated in `bin/setup.{sh,ps1}` and in the
+        # docker file.
         self.requires("viam-cpp-sdk/0.21.0")
         self.requires("libmp3lame/3.100")
 
