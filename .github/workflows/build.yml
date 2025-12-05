@@ -50,3 +50,9 @@ jobs:
         run: |
           . ./venv/bin/activate
           conan create . -o:a "viam-cpp-sdk/*:shared=False" -s:a build_type=Release -s:a compiler.cppstd=17 --build=missing -cc core:non_interactive=True
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+            name: audio-module-${{ matrix.os }}
+            path: module.tar.gz
