@@ -1,10 +1,23 @@
 #pragma once
 
 #include <gmock/gmock.h>
+#include <viam/sdk/common/instance.hpp>
 #include "../src/portaudio.hpp"
 #include "portaudio.h"
 
 namespace test_utils {
+
+// Shared test environment for audio tests
+// Manages the viam::sdk::Instance lifecycle for all tests
+class AudioTestEnvironment : public ::testing::Environment {
+public:
+  void SetUp() override { instance_ = std::make_unique<viam::sdk::Instance>(); }
+
+  void TearDown() override { instance_.reset(); }
+
+private:
+  std::unique_ptr<viam::sdk::Instance> instance_;
+};
 
 /**
  * Mock PortAudio implementation using gmock.

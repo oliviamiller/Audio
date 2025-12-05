@@ -9,15 +9,6 @@
 using namespace viam::sdk;
 using namespace audio;
 
-class AudioUtilsTestEnvironment : public ::testing::Environment {
-public:
-  void SetUp() override { instance_ = std::make_unique<viam::sdk::Instance>(); }
-
-  void TearDown() override { instance_.reset(); }
-
-private:
-  std::unique_ptr<viam::sdk::Instance> instance_;
-};
 
 class AudioUtilsTest : public test_utils::AudioTestBase {
 protected:
@@ -375,6 +366,6 @@ TEST_F(AudioUtilsTest, SetupAudioDeviceUsesConfigParams) {
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  ::testing::AddGlobalTestEnvironment(new AudioUtilsTestEnvironment);
+  ::testing::AddGlobalTestEnvironment(new test_utils::AudioTestEnvironment);
   return RUN_ALL_TESTS();
 }

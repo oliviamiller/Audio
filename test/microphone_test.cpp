@@ -1,21 +1,10 @@
 #include <gtest/gtest.h>
-#include <viam/sdk/common/instance.hpp>
 #include <viam/sdk/config/resource.hpp>
 #include <portaudio.h>
 #include <viam/sdk/common/audio.hpp>
 #include "microphone.hpp"
 #include "test_utils.hpp"
 #include <thread>
-
-class MicrophoneTestEnvironment : public ::testing::Environment {
-public:
-  void SetUp() override { instance_ = std::make_unique<viam::sdk::Instance>(); }
-
-  void TearDown() override { instance_.reset(); }
-
-private:
-  std::unique_ptr<viam::sdk::Instance> instance_;
-};
 
 using namespace viam::sdk;
 using namespace audio;
@@ -80,7 +69,7 @@ protected:
         ctx->first_sample_adc_time = 0.0;
         ctx->stream_start_time = std::chrono::system_clock::now();
         ctx->first_callback_captured.store(true);
-        ctx->reset();
+        ctx->clear();
 
         // Optionally write samples
         for (int i = 0; i < num_samples; i++) {
@@ -639,11 +628,7 @@ TEST_F(MicrophoneTest, MultipleConcurrentGetAudioCalls) {
     auto config = createConfig(testDeviceName, 44100, 2);
     microphone::Microphone mic(test_deps_, config, mock_pa_.get());
 
-    // Initialize timing
-    mic.audio_context_->first_sample_adc_time = 0.0;
-    mic.audio_context_->stream_start_time = std::chrono::system_clock::now();
-    mic.audio_context_->first_callback_captured.store(true);
-    mic.audio_context_->reset();
+    auto ctx = createTestContext(mic, 0);
 
     // Write samples in background
     std::atomic<bool> stop_writing{false};
@@ -696,22 +681,11 @@ TEST_F(MicrophoneTest, GetAudioReceivesChunks) {
 
     PaStream* dummy_stream = reinterpret_cast<PaStream*>(0x1234);
 
-
-    std::shared_ptr<audio::InputStreamContext> ctx;
-    {
-        std::lock_guard<std::mutex> lock(mic.stream_ctx_mu_);
-        ctx = mic.audio_context_;
-    }
-
     // Each chunk is 100ms = 4410 samples at 44.1kHz mono
     const int samples_per_chunk = 4410;
     const int num_chunks = 5;
 
-    // Initialize timing for timestamp calculation
-    ctx->first_sample_adc_time = 0.0;
-    ctx->stream_start_time = std::chrono::system_clock::now();
-    ctx->first_callback_captured.store(true);
-    ctx->reset();
+     mic.audio_context_ = createTestContext(mic, 0);
 
     int chunks_received = 0;
     auto handler = [&](viam::sdk::AudioIn::audio_chunk&& chunk) {
@@ -728,7 +702,7 @@ TEST_F(MicrophoneTest, GetAudioReceivesChunks) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
      for (int i = 0; i < num_chunks * samples_per_chunk; i++) {
-        ctx->write_sample(static_cast<int16_t>(i));
+        mic.audio_context_->write_sample(static_cast<int16_t>(i));
      }
 
     reader.join();
@@ -747,10 +721,7 @@ TEST_F(MicrophoneTest, GetAudioHandlerCanStopEarly) {
     const int total_chunks = 10;
 
     // Initialize timing for timestamp calculation
-    mic.audio_context_->first_sample_adc_time = 0.0;
-    mic.audio_context_->stream_start_time = std::chrono::system_clock::now();
-    mic.audio_context_->first_callback_captured.store(true);
-    mic.audio_context_->reset();
+    mic.audio_context_ = createTestContext(mic, 0);
 
     // Simulate real-time audio: write samples in background thread
     std::atomic<bool> stop_writing{false};
@@ -1394,58 +1365,8 @@ class AudioCallbackTest : public ::testing::Test {
       EXPECT_EQ(ctx->get_write_position(), 0);
   }
 
-//   TEST_F(AudioCallbackTest, WritesSamplesToCircularBuffer) {
-//       std::vector<int16_t> samples = {100, 200, 300, 400, 500};
-
-//       int result = call_callback(samples);
-
-//       EXPECT_EQ(result, paContinue);
-
-//       EXPECT_EQ(ctx->get_write_position(), samples.size());
-
-//       std::vector<int16_t> read_buffer(samples.size());
-//       uint64_t read_pos = 0;
-//       int samples_read = ctx->read_samples(read_buffer.data(), samples.size(), read_pos);
-
-//       EXPECT_EQ(samples_read, samples.size());
-//       EXPECT_EQ(read_buffer, samples);
-//   }
-
-//   TEST_F(AudioCallbackTest, TracksFirstCallbackTime) {
-//       std::vector<int16_t> samples = create_test_samples(100);
-//       EXPECT_FALSE(ctx->first_callback_captured.load());
-//       call_callback(samples);
-//       EXPECT_TRUE(ctx->first_callback_captured.load());
-//       EXPECT_EQ(ctx->first_sample_adc_time, mock_time_info.inputBufferAdcTime);
-//   }
-
-//   TEST_F(AudioCallbackTest, TracksSamplesWritten) {
-//       std::vector<int16_t> samples = create_test_samples(100);
-
-//       EXPECT_EQ(ctx->get_write_position(), 0);
-//       call_callback(samples);
-//       EXPECT_EQ(ctx->get_write_position(), 100);
-//       call_callback(samples);
-//       EXPECT_EQ(ctx->get_write_position(), 200);
-//   }
-
-//   TEST_F(AudioCallbackTest, HandlesNullInputBuffer) {
-//       int result = ::microphone::AudioCallback(
-//           nullptr,           // null input buffer
-//           nullptr,
-//           100,
-//           &mock_time_info,
-//           0,
-//           ctx.get()
-//       );
-
-//       // Should return paContinue and not write anything
-//       EXPECT_EQ(result, paContinue);
-//       EXPECT_EQ(ctx->get_write_position(), 0);
-//   }
-
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  ::testing::AddGlobalTestEnvironment(new MicrophoneTestEnvironment);
+  ::testing::AddGlobalTestEnvironment(new test_utils::AudioTestEnvironment);
   return RUN_ALL_TESTS();
 }

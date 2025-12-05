@@ -110,7 +110,7 @@ uint64_t AudioBuffer::get_write_position() const noexcept {
 }
 
 
-void AudioBuffer::reset() noexcept {
+void AudioBuffer::clear() noexcept {
     total_samples_written.store(0, std::memory_order_relaxed);
 
     for (int i = 0; i < buffer_capacity; i++) {

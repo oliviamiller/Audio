@@ -5,19 +5,10 @@
 #include <viam/sdk/common/instance.hpp>
 #include "audio_stream.hpp"
 #include "microphone.hpp"
+#include "test_utils.hpp"
 
 using namespace audio;
 using namespace viam::sdk;
-
-class AudioBufferTestEnvironment : public ::testing::Environment {
-public:
-  void SetUp() override { instance_ = std::make_unique<viam::sdk::Instance>(); }
-
-  void TearDown() override { instance_.reset(); }
-
-private:
-  std::unique_ptr<viam::sdk::Instance> instance_;
-};
 
 
 class AudioBufferTest : public ::testing::Test {
@@ -28,7 +19,7 @@ protected:
     }
 
     void TearDown() override {
-        buffer_.reset();
+        buffer_->clear();
     }
 
     std::unique_ptr<AudioBuffer> buffer_;
@@ -173,7 +164,7 @@ protected:
     }
 
     void TearDown() override {
-        context_.reset();
+        context_->clear();
     }
 
     // Helper to create a test chunk
@@ -232,7 +223,7 @@ TEST_F(InputStreamContextTest, CalculateSampleTimestamp) {
     context_->first_sample_adc_time = 1000.0;
     context_->stream_start_time = std::chrono::system_clock::now();
     context_->first_callback_captured.store(true);
-    context_->reset();
+    context_->clear();
 
     auto baseline_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
         context_->stream_start_time.time_since_epoch()
@@ -430,6 +421,6 @@ TEST_F(InputStreamContextTest, InputStreamContextThrowsOnNegativeBufferDuration)
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    ::testing::AddGlobalTestEnvironment(new AudioBufferTestEnvironment);
+    ::testing::AddGlobalTestEnvironment(new test_utils::AudioTestEnvironment);
     return RUN_ALL_TESTS();
 }

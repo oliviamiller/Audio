@@ -32,7 +32,7 @@ public:
 
     uint64_t get_write_position() const noexcept;
 
-    void reset() noexcept;
+    void clear() noexcept;
 
     vsdk::audio_info info;
     int buffer_capacity;

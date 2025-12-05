@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
-#include <viam/sdk/common/instance.hpp>
 #include <viam/sdk/config/resource.hpp>
 #include <cmath>
 #include "speaker.hpp"
@@ -8,16 +7,6 @@
 
 using namespace viam::sdk;
 using namespace audio;
-
-class SpeakerTestEnvironment : public ::testing::Environment {
-public:
-  void SetUp() override { instance_ = std::make_unique<viam::sdk::Instance>(); }
-
-  void TearDown() override { instance_.reset(); }
-
-private:
-  std::unique_ptr<viam::sdk::Instance> instance_;
-};
 
 class SpeakerTest: public test_utils::AudioTestBase {
 protected:
@@ -405,13 +394,9 @@ TEST_F(SpeakerTest, CallbackFillsWithSilenceWhenInsufficientData) {
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  ::testing::AddGlobalTestEnvironment(new SpeakerTestEnvironment);
+  ::testing::AddGlobalTestEnvironment(new test_utils::AudioTestEnvironment);
   return RUN_ALL_TESTS();
 }
-
-
-using namespace viam::sdk;
-using namespace audio;
 
 
 
