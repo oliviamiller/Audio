@@ -3,9 +3,8 @@
 #include <cstring>
 #include <stdexcept>
 #include <string>
-#include "portaudio.h"
 
-namespace audio {
+namespace microphone {
 
 AudioBuffer::AudioBuffer(const vsdk::audio_info& audio_info, int buffer_duration_seconds)
     : audio_buffer(nullptr), buffer_capacity(0), info(audio_info), total_samples_written(0) {
@@ -75,6 +74,8 @@ int AudioBuffer::read_samples(int16_t* buffer, int sample_count, uint64_t& read_
         VIAM_SDK_LOG(warn) << "Audio buffer overrun: read position " << old_position
                            << " has been overwritten. Skipping to oldest available sample at " << read_position << " (lost "
                            << (read_position - old_position) << " samples)";
+        << " has been overwritten. Skipping to oldest available sample at " << read_position << " (lost " << (read_position - old_position)
+        << " samples)";
     }
 
     uint64_t available = current_write_pos - read_position;
@@ -116,6 +117,7 @@ std::chrono::nanoseconds InputStreamContext::calculate_sample_timestamp(uint64_t
     auto absolute_time = stream_start_time + elapsed_duration;
 
     return std::chrono::duration_cast<std::chrono::nanoseconds>(absolute_time.time_since_epoch());
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(absolute_time.time_since_epoch());
 }
 
 uint64_t InputStreamContext::get_sample_number_from_timestamp(int64_t timestamp) noexcept {
@@ -131,4 +133,4 @@ uint64_t InputStreamContext::get_sample_number_from_timestamp(int64_t timestamp)
 OutputStreamContext::OutputStreamContext(const vsdk::audio_info& audio_info, int buffer_duration_seconds)
     : AudioBuffer(audio_info, buffer_duration_seconds), playback_position(0) {}
 
-}  // namespace audio
+}  // namespace microphone
