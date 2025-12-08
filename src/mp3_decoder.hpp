@@ -15,13 +15,16 @@ struct MP3DecoderContext {
 
     int sample_rate = 0;
     int num_channels = 0;
+
+    MP3DecoderContext();
+    
+    ~MP3DecoderContext();
+
 };
 
-void initialize_mp3_decoder(MP3DecoderContext& ctx);
 void decode_mp3_to_pcm16(
     MP3DecoderContext& ctx,
     const std::vector<uint8_t>& encoded_data,
     std::vector<uint8_t>& output_data);
-void cleanup_mp3_decoder(MP3DecoderContext& ctx);
 
 }  // namespace speaker

@@ -5,6 +5,7 @@
 #include <string>
 #include <viam/sdk/components/audio_out.hpp>
 #include "portaudio.hpp"
+#include "audio_stream.hpp"
 
 namespace audio {
 namespace utils {
@@ -294,7 +295,7 @@ inline AudioDeviceSetup<ContextType> setup_audio_device(const viam::sdk::Resourc
                                                         StreamDirection direction,
                                                         PaStreamCallback* callback,
                                                         const audio::portaudio::PortAudioInterface* pa,
-                                                        int buffer_duration_seconds = 30) {
+                                                        int buffer_duration_seconds = audio::BUFFER_DURATION_SECONDS) {
     AudioDeviceSetup<ContextType> setup;
 
     setup.config_params = parseConfigAttributes(cfg);

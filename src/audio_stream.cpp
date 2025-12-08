@@ -115,7 +115,6 @@ std::chrono::nanoseconds InputStreamContext::calculate_sample_timestamp(uint64_t
     auto absolute_time = stream_start_time + elapsed_duration;
 
     return std::chrono::duration_cast<std::chrono::nanoseconds>(absolute_time.time_since_epoch());
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(absolute_time.time_since_epoch());
 }
 
 uint64_t InputStreamContext::get_sample_number_from_timestamp(int64_t timestamp) noexcept {
