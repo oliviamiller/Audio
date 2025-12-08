@@ -75,6 +75,27 @@ TEST_F(DiscoveryTest, SingleInputDevice) {
     EXPECT_EQ(attrs.get<double>("num_channels").value(), 2.0);
 }
 
+
+TEST_F(DiscoveryTest, SingleOutputDevice) {
+    createMockDevices({{"Test Speaker", 0, 2, 48000.0}});
+
+    EXPECT_CALL(*mock_pa_, getDeviceCount()).WillRepeatedly(Return(1));
+    EXPECT_CALL(*mock_pa_, getDeviceInfo(0)).WillRepeatedly(Return(&device_infos_[0]));
+
+    AudioDiscovery discovery(deps_, *config_, mock_pa_.get());
+    auto configs = discovery.discover_resources(ProtoStruct{});
+
+    EXPECT_EQ(configs.size(), 1);
+    EXPECT_EQ(configs[0].name(), "speaker-1");
+    EXPECT_EQ(configs[0].api(), "rdk:component:audio_out");
+
+    auto attrs = configs[0].attributes();
+    EXPECT_EQ(attrs.get<std::string>("device_name").value(), "Test Speajer");
+    EXPECT_EQ(attrs.get<double>("sample_rate").value(), 48000.0);
+    EXPECT_EQ(attrs.get<double>("num_channels").value(), 2.0);
+}
+
+
 TEST_F(DiscoveryTest, MixedInputOutputDevices) {
     createMockDevices({
         {"Microphone", 2, 0, 44100.0},
