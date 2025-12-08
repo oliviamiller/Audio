@@ -6,7 +6,7 @@
 namespace speaker{
 
 
-      // Helper to skip ID3v2 tags at the beginning of MP3 data
+// Helper to skip ID3v2 tags at the beginning of MP3 data
   static size_t skip_id3v2_tag(const std::vector<uint8_t>& data) {
       // Check for ID3v2 tag (starts with "ID3")
       if (data.size() < 10 || data[0] != 'I' || data[1] != 'D' || data[2] != '3') {

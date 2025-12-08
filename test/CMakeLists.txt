@@ -27,6 +27,7 @@ function(audio_add_gtest SOURCE_FILE_NAME)
         viam-cpp-sdk::viamsdk
         ${PORTAUDIO_LIBRARIES}
         libmp3lame::libmp3lame
+        soxr::soxr
     )
 
     target_include_directories(${TEST_EXECUTABLE_NAME} PRIVATE
