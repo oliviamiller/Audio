@@ -3,7 +3,6 @@
 #include <thread>
 #include <chrono>
 #include <viam/sdk/common/instance.hpp>
-#include "audio_stream.hpp"
 #include "microphone.hpp"
 #include "test_utils.hpp"
 
