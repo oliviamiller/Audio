@@ -19,6 +19,7 @@ constexpr float INT16_TO_FLOAT_SCALE = 1.0f / 32768.0f;  // Scale factor for con
 
 // Base class for audio buffering - lock-free circular buffer with atomic operations
 // Can be used by both input (microphone) and output (speaker) models.
+// There is a 1:1 correspondence between AudioBuffer and viam audio resource
 class AudioBuffer {
    public:
     AudioBuffer(const vsdk::audio_info& audio_info, int buffer_duration_seconds);

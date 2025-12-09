@@ -217,11 +217,10 @@ void Speaker::reconfigure(const vsdk::Dependencies& deps, const vsdk::ResourceCo
 
     try {
         // Check if there's unplayed audio before reconfiguring
+        std::lock_guard<std::mutex> lock(stream_mu_);
         if (audio_context_) {
             uint64_t write_pos = audio_context_->get_write_position();
             uint64_t playback_pos = audio_context_->playback_position.load();
-            VIAM_SDK_LOG(info) << write_pos;
-            VIAM_SDK_LOG(info) << playback_pos;
 
             if (write_pos > playback_pos) {
                 uint64_t unplayed_samples = write_pos - playback_pos;
