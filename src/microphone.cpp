@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <thread>
+#include "audio_buffer.hpp"
 #include "audio_codec.hpp"
 #include "audio_stream.hpp"
 #include "audio_utils.hpp"
@@ -10,7 +11,6 @@
 namespace microphone {
 using audio::codec::AudioCodec;
 
-// === Static Helper Functions ===
 // === Static Helper Functions ===
 
 // Calculate chunk size aligned to MP3 frame boundaries
