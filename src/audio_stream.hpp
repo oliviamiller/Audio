@@ -6,8 +6,8 @@
 #include <vector>
 #include <viam/sdk/common/audio.hpp>
 #include <viam/sdk/components/audio_in.hpp>
-#include "portaudio.h"
 #include "audio_buffer.hpp"
+#include "portaudio.h"
 
 namespace audio {
 

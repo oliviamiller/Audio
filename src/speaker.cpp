@@ -5,8 +5,8 @@
 #include <viam/sdk/common/exception.hpp>
 #include <viam/sdk/components/audio_out.hpp>
 #include <viam/sdk/registry/registry.hpp>
-#include "audio_utils.hpp"
 #include "audio_buffer.hpp"
+#include "audio_utils.hpp"
 
 namespace speaker {
 namespace vsdk = ::viam::sdk;

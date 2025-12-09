@@ -1,3 +1,4 @@
+#include "audio_buffer.hpp"
 #include <atomic>
 #include <chrono>
 #include <mutex>
@@ -5,7 +6,6 @@
 #include <viam/sdk/common/audio.hpp>
 #include <viam/sdk/components/audio_in.hpp>
 #include "portaudio.h"
-#include "audio_buffer.hpp"
 
 namespace audio {
 
@@ -99,4 +99,4 @@ int AudioBuffer::read_samples(int16_t* buffer, int sample_count, uint64_t& read_
 uint64_t AudioBuffer::get_write_position() const noexcept {
     return total_samples_written.load(std::memory_order_acquire);
 }
-} // namespace audio
+}  // namespace audio

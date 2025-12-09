@@ -2,11 +2,11 @@
 #include <algorithm>
 #include <cctype>
 #include <thread>
+#include "audio_buffer.hpp"
 #include "audio_codec.hpp"
 #include "audio_stream.hpp"
 #include "audio_utils.hpp"
 #include "mp3_encoder.hpp"
-#include "audio_buffer.hpp"
 
 namespace microphone {
 using audio::codec::AudioCodec;

@@ -12,8 +12,7 @@ namespace audio {
 
 namespace vsdk = ::viam::sdk;
 
-
-constexpr int BUFFER_DURATION_SECONDS = 30;     // How much audio history to keep in buffer
+constexpr int BUFFER_DURATION_SECONDS = 30;  // How much audio history to keep in buffer
 
 // Base class for audio buffering - lock-free circular buffer with atomic operations
 // Can be used by both input (microphone) and output (speaker) models.
@@ -37,4 +36,4 @@ class AudioBuffer {
     std::unique_ptr<std::atomic<int16_t>[]> audio_buffer;
 };
 
-} //namespace audio
+}  // namespace audio
