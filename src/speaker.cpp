@@ -198,9 +198,10 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
     if (audio_sample_rate != speaker_sample_rate) {
         VIAM_SDK_LOG(debug) << "Sample rate mismatch: speaker is configured for " << speaker_sample_rate << "Hz but audio is "
                             << audio_sample_rate << "Hz, resampling audio";
+        VIAM_SDK_LOG(debug) << "Audio channels: " << audio_channels << ", Speaker channels: " << speaker_num_channels;
 
         std::vector<uint8_t> resampled_data;
-        resample_audio(audio_sample_rate, speaker_sample_rate, speaker_num_channels, decoded_data, resampled_data);
+        resample_audio(audio_sample_rate, speaker_sample_rate, audio_channels, decoded_data, resampled_data);
 
         // Replace with resampled data
         decoded_data = std::move(resampled_data);
@@ -219,7 +220,10 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
     // Check if audio duration exceeds playback buffer capacity
     {
         std::lock_guard<std::mutex> lock(stream_mu_);
-        double duration_seconds = static_cast<double>(num_samples) / (audio_sample_rate * audio_num_channels);
+        // Use speaker sample rate since data has been resampled to match speaker
+        double duration_seconds = static_cast<double>(num_samples) / (speaker_sample_rate * speaker_num_channels);
+        VIAM_SDK_LOG(debug) << "Audio duration: " << duration_seconds << " seconds (buffer capacity: "
+                            << audio::BUFFER_DURATION_SECONDS << " seconds)";
         if (duration_seconds > audio::BUFFER_DURATION_SECONDS) {
             VIAM_SDK_LOG(error) << "Audio duration (" << duration_seconds << " seconds) exceeds maximum playback buffer size ("
                                 << audio::BUFFER_DURATION_SECONDS << " seconds)";
