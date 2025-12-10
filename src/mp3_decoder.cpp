@@ -32,13 +32,11 @@ MP3DecoderContext::MP3DecoderContext() : sample_rate(0), num_channels(0) {
 
     decoder = std::move(hip);
 
-    VIAM_SDK_LOG(info) << "MP3 decoder initialized";
+    VIAM_SDK_LOG(debug) << "MP3 decoder initialized";
 }
 
 MP3DecoderContext::~MP3DecoderContext() {
-    VIAM_SDK_LOG(debug) << "MP3DecoderContext destructor called";
     decoder.reset();
-    VIAM_SDK_LOG(debug) << "MP3 decoder cleaned up";
     sample_rate = 0;
     num_channels = 0;
 }
@@ -94,55 +92,60 @@ void decode_mp3_to_pcm16(MP3DecoderContext& ctx, const std::vector<uint8_t>& enc
 
     VIAM_SDK_LOG(debug) << "Decoding " << (encoded_data.size() - offset) << " bytes of MP3 data (offset: " << offset << ")";
 
-    // Buffers for decoded PCM samples
-    const size_t BUFFER_SIZE = 500000;  // Samples per channel
-    std::vector<int16_t> pcm_left(BUFFER_SIZE);
-    std::vector<int16_t> pcm_right(BUFFER_SIZE);
+    // Buffers for decoded PCM samples - one MP3 frame max 1152 samples, allocate extra for safety
+    const size_t FRAME_BUFFER_SIZE = 1152;  // Samples per channel
+    std::vector<int16_t> pcm_left(FRAME_BUFFER_SIZE);
+    std::vector<int16_t> pcm_right(FRAME_BUFFER_SIZE);
 
     mp3data_struct mp3data;
     memset(&mp3data, 0, sizeof(mp3data));
 
     const unsigned char* mp3_ptr = encoded_data.data() + offset;
-    size_t encoded_data_length = encoded_data.size() - offset;
+    size_t mp3_data_length = encoded_data.size() - offset;
+    int frames_decoded = 0;
 
-    int decoded_samples = hip_decode_headers(ctx.decoder.get(),
-                                             const_cast<unsigned char*>(mp3_ptr),  // input buffer
-                                             encoded_data_length,
-                                             pcm_left.data(),
-                                             pcm_right.data(),
-                                             &mp3data);
+    // Decode frame by frame using hip_decode1_headers (returns at most one frame per call)
+    // Keep calling with the same data - the decoder maintains internal state
+    while (true) {
+        int decoded_samples = hip_decode1_headers(ctx.decoder.get(),
+                                                  const_cast<unsigned char*>(mp3_ptr),
+                                                  mp3_data_length,
+                                                  pcm_left.data(),
+                                                  pcm_right.data(),
+                                                  &mp3data);
 
-    VIAM_SDK_LOG(debug) << "hip_decode_headers returned: " << decoded_samples << " samples";
+        if (decoded_samples < 0) {
+            VIAM_SDK_LOG(error) << "Error decoding MP3 data";
+            throw std::runtime_error("MP3 decoding error");
+        }
 
-    if (decoded_samples < 0) {
-        VIAM_SDK_LOG(error) << "Error decoding MP3 data";
-        throw std::runtime_error("MP3 decoding error");
-    }
+        // Get audio properties from header
+        if (ctx.sample_rate == 0 && mp3data.samplerate != 0) {
+            ctx.sample_rate = mp3data.samplerate;
+            ctx.num_channels = mp3data.stereo;
+            VIAM_SDK_LOG(debug) << "MP3 audio properties: " << ctx.sample_rate << "Hz, " << ctx.num_channels << " channels";
+        }
 
-    // Get audio properties from header (even if no samples decoded yet)
-    if (ctx.sample_rate == 0 && mp3data.samplerate != 0) {
-        ctx.sample_rate = mp3data.samplerate;
-        ctx.num_channels = mp3data.stereo;
-        VIAM_SDK_LOG(debug) << "MP3 audio properties: " << ctx.sample_rate << "Hz, " << ctx.num_channels << " channels";
-    }
+        if (decoded_samples == 0) {
+            // No more frames can be decoded from buffered data, break to flush
+            break;
+        }
 
-    if (decoded_samples == 0) {
-        // The audio data size was too small, and all of it is still buffered.
-        // We need to flush to get the data
-        VIAM_SDK_LOG(debug) << "No decoded frames returned, proceeding to flush";
-    } else {
-        // Ensure we have valid properties before appending
         if (ctx.num_channels == 0) {
             VIAM_SDK_LOG(error) << "Cannot append samples: num_channels not set";
             throw std::runtime_error("MP3 properties not extracted before appending samples");
         }
+
         append_samples(output_data, pcm_left, pcm_right, decoded_samples, ctx.num_channels);
+        frames_decoded++;
     }
+
+    VIAM_SDK_LOG(debug) << "Decoded " << frames_decoded << " frames from MP3 data";
 
     // Flush decoder - repeatedly call with nullptr until no more samples
     int flush_count = 0;
     while (true) {
-        int decoded_samples = hip_decode_headers(ctx.decoder.get(), nullptr, 0, pcm_left.data(), pcm_right.data(), &mp3data);
+        int decoded_samples = hip_decode1_headers(ctx.decoder.get(), nullptr, 0, pcm_left.data(), pcm_right.data(), &mp3data);
 
         if (decoded_samples < 0) {
             VIAM_SDK_LOG(error) << "MP3 decoder failed to flush";
