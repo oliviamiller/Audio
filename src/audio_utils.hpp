@@ -136,8 +136,8 @@ inline StreamParams setupStreamFromConfig(const ConfigParams& params,
     stream_params.sample_rate = params.sample_rate.value_or(static_cast<int>(deviceInfo->defaultSampleRate));
     stream_params.num_channels = params.num_channels.value_or(1);
 
-    VIAM_SDK_LOG(debug) << "[setupStreamFromConfig] Using sample rate " << std::to_string(stream_params.sample_rate)
-                        << "and num channels: " << stream_params.num_channels;
+    VIAM_SDK_LOG(debug) << "[setupStreamFromConfig] Using sample rate " << stream_params.sample_rate
+                        << " and num channels: " << stream_params.num_channels;
 
     // Use appropriate default latency based on direction
     double default_latency =
@@ -195,7 +195,7 @@ inline void openStream(PaStream*& stream, const StreamParams& params, const audi
         throw std::runtime_error(buffer.str());
     }
 
-    VIAM_SDK_LOG(info) << "Opening stream fordevice '" << params.device_name << "' (index " << params.device_index << ")"
+    VIAM_SDK_LOG(info) << "Opening stream for device '" << params.device_name << "' (index " << params.device_index << ")"
                        << " with sample rate " << params.sample_rate << " channels: " << params.num_channels << " and latency "
                        << stream_params.suggestedLatency << " seconds";
 
