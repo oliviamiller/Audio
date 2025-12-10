@@ -8,6 +8,14 @@ project(audio
     LANGUAGES CXX
 )
 
+# Enable AddressSanitizer for debugging (remove for production builds)
+option(ENABLE_ASAN "Enable AddressSanitizer" ON)
+if(ENABLE_ASAN)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -g -fno-omit-frame-pointer")
+    set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=address")
+    message(STATUS "AddressSanitizer enabled")
+endif()
+
 add_executable(audio-module
     src/main.cpp
     src/microphone.cpp
