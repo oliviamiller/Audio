@@ -31,13 +31,13 @@ std::vector<vsdk::ResourceConfig> AudioDiscovery::discover_resources(const vsdk:
 
     // Helper lambda to create device configs
     auto create_device_config = [this](const std::string& component_type,
-                                   const std::string& device_type,
-                                   const std::string& api,
-                                   const std::string& device_name,
-                                   const double sample_rate,
-                                   const int num_channels,
-                                   int count,
-                                   const vsdk::Model& model) -> vsdk::ResourceConfig {
+                                       const std::string& device_type,
+                                       const std::string& api,
+                                       const std::string& device_name,
+                                       const double sample_rate,
+                                       const int num_channels,
+                                       int count,
+                                       const vsdk::Model& model) -> vsdk::ResourceConfig {
         try {
             vsdk::ProtoStruct attributes;
             attributes.emplace("device_name", device_name);
