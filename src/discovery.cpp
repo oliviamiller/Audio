@@ -30,7 +30,7 @@ std::vector<vsdk::ResourceConfig> AudioDiscovery::discover_resources(const vsdk:
     VIAM_RESOURCE_LOG(info) << "Discovery found " << numDevices << " audio devices";
 
     // Helper lambda to create device configs
-    auto create_device_config = [](const std::string& component_type,
+    auto create_device_config = [this](const std::string& component_type,
                                    const std::string& device_type,
                                    const std::string& api,
                                    const std::string& device_name,
