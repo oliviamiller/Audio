@@ -83,6 +83,7 @@ class StreamGuard {
 
 Microphone::Microphone(viam::sdk::Dependencies deps, viam::sdk::ResourceConfig cfg, audio::portaudio::PortAudioInterface* pa)
     : viam::sdk::AudioIn(cfg.name()), stream_(nullptr), pa_(pa), active_streams_(0) {
+    VIAM_SDK_LOG(info) << "[Microphone::Microphone] Constructor called for " << cfg.name();
     auto setup = audio::utils::setup_audio_device<audio::InputStreamContext>(cfg, audio::utils::StreamDirection::Input, AudioCallback, pa_);
 
     // Set new configuration and start stream under lock
@@ -101,6 +102,7 @@ Microphone::Microphone(viam::sdk::Dependencies deps, viam::sdk::ResourceConfig c
 }
 
 Microphone::~Microphone() {
+    VIAM_SDK_LOG(info) << "[Microphone::~Microphone] Destructor called";
     if (stream_) {
         PaError err = Pa_StopStream(stream_);
         if (err != paNoError) {
