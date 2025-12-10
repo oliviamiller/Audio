@@ -76,7 +76,7 @@ inline ConfigParams parseConfigAttributes(const viam::sdk::ResourceConfig& cfg) 
         params.historical_throttle_ms = *attrs.at("historical_throttle_ms").get<double>();
     }
 
-    VIAM_SDK_LOG(debug) << "[parseConfigAttributes] sucessfully parsed config attributes"
+    VIAM_SDK_LOG(debug) << "[parseConfigAttributes] sucessfully parsed config attributes";
 
         return params;
 }
