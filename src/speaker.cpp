@@ -241,13 +241,18 @@ void Speaker::reconfigure(const vsdk::Dependencies& deps, const vsdk::ResourceCo
         // Set new configuration and restart stream under lock
         {
             std::lock_guard<std::mutex> lock(stream_mu_);
+
+            // CRITICAL: Stop the stream FIRST before replacing audio_context_
+            // Otherwise the callback thread may still be accessing the old context
+            // while we destroy it (heap-use-after-free)
+            audio::utils::restart_stream(stream_, setup.stream_params, pa_);
+
+            // Now safe to update member variables after stream is stopped
             device_name_ = setup.stream_params.device_name;
             sample_rate_ = setup.stream_params.sample_rate;
             num_channels_ = setup.stream_params.num_channels;
             latency_ = setup.stream_params.latency_seconds;
             audio_context_ = setup.audio_context;
-
-            audio::utils::restart_stream(stream_, setup.stream_params, pa_);
         }
         VIAM_SDK_LOG(info) << "[reconfigure] Reconfigure completed successfully";
     } catch (const std::exception& e) {

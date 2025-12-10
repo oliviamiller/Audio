@@ -206,6 +206,13 @@ void Microphone::reconfigure(const viam::sdk::Dependencies& deps, const viam::sd
         // Set new configuration and restart stream under lock
         {
             std::lock_guard<std::mutex> lock(stream_ctx_mu_);
+
+            // CRITICAL: Stop the stream FIRST before replacing audio_context_
+            // Otherwise the callback thread may still be writing to the old buffer
+            // while we destroy it (heap-use-after-free)
+            audio::utils::restart_stream(stream_, setup.stream_params, pa_);
+
+            // Now safe to update member variables after stream is stopped
             device_name_ = setup.stream_params.device_name;
             device_index_ = setup.stream_params.device_index;
             sample_rate_ = setup.stream_params.sample_rate;
@@ -213,8 +220,6 @@ void Microphone::reconfigure(const viam::sdk::Dependencies& deps, const viam::sd
             latency_ = setup.stream_params.latency_seconds;
             audio_context_ = setup.audio_context;
             historical_throttle_ms_ = setup.config_params.historical_throttle_ms.value_or(DEFAULT_HISTORICAL_THROTTLE_MS);
-
-            audio::utils::restart_stream(stream_, setup.stream_params, pa_);
         }
         VIAM_SDK_LOG(info) << "[reconfigure] Reconfigure completed successfully";
     } catch (const std::exception& e) {
