@@ -183,9 +183,12 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
         }
     }
 
+    VIAM_SDK_LOG(debug) << "start write position is " << start_position;
+
     // Block until playback position catches up
     VIAM_SDK_LOG(debug) << "Waiting for playback to complete...";
     while (playback_context->playback_position.load() - start_position < num_samples) {
+        VIAM_SDK_LOG(debug) << "playback_position: " << playback_context->playback_position.load();
         // Check if context changed (reconfigure happened)
         {
             std::lock_guard<std::mutex> lock(stream_mu_);
