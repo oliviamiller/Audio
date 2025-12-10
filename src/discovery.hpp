@@ -19,6 +19,6 @@ class AudioDiscovery : public viam::sdk::Discovery {
 
    private:
     // This is null in production and used for testing to inject the mock portaudio functions
-    const audio::portaudio::PortAudioInterface* pa_;
+    const audio::portaudio::PortAudioInterface* pa_{};
 };
 }  // namespace discovery

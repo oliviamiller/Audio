@@ -20,7 +20,7 @@ AudioDiscovery::AudioDiscovery(vsdk::Dependencies dependencies,
 std::vector<vsdk::ResourceConfig> AudioDiscovery::discover_resources(const vsdk::ProtoStruct& extra) {
     std::vector<vsdk::ResourceConfig> configs;
 
-    int numDevices = pa_ ? pa_->getDeviceCount() : Pa_GetDeviceCount();
+    const int numDevices = pa_ ? pa_->getDeviceCount() : Pa_GetDeviceCount();
 
     if (numDevices <= 0) {
         VIAM_RESOURCE_LOG(warn) << "No audio devices found during discovery";
@@ -34,8 +34,8 @@ std::vector<vsdk::ResourceConfig> AudioDiscovery::discover_resources(const vsdk:
                                    const std::string& device_type,
                                    const std::string& api,
                                    const std::string& device_name,
-                                   double sample_rate,
-                                   int num_channels,
+                                   const double sample_rate,
+                                   const int num_channels,
                                    int count,
                                    const vsdk::Model& model) -> vsdk::ResourceConfig {
         try {
@@ -67,8 +67,8 @@ std::vector<vsdk::ResourceConfig> AudioDiscovery::discover_resources(const vsdk:
                                  const std::string& device_type,
                                  const std::string& api,
                                  const std::string& device_name,
-                                 double sample_rate,
-                                 int num_channels,
+                                 const double sample_rate,
+                                 const int num_channels,
                                  int& counter) {
         ++counter;
 
@@ -85,8 +85,8 @@ std::vector<vsdk::ResourceConfig> AudioDiscovery::discover_resources(const vsdk:
 
     for (int i = 0; i < numDevices; i++) {
         const PaDeviceInfo* info = pa_ ? pa_->getDeviceInfo(i) : Pa_GetDeviceInfo(i);
-        std::string device_name = info->name;
-        double sample_rate = info->defaultSampleRate;
+        const std::string device_name = info->name;
+        const double sample_rate = info->defaultSampleRate;
 
         if (info->maxInputChannels > 0) {
             add_device_config(microphone::Microphone::model,

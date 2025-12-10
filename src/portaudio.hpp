@@ -92,7 +92,7 @@ class RealPortAudio : public PortAudioInterface {
     }
 };
 
-inline void startPortAudio(audio::portaudio::PortAudioInterface* pa = nullptr) {
+static inline void startPortAudio(audio::portaudio::PortAudioInterface* pa = nullptr) {
     audio::portaudio::RealPortAudio real_pa;
     audio::portaudio::PortAudioInterface& audio_interface = pa ? *pa : real_pa;
 
