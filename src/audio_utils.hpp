@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -215,6 +216,20 @@ inline void openStream(PaStream*& stream, const StreamParams& params, const audi
                << ", latency=" << stream_params.suggestedLatency << "s)";
         VIAM_SDK_LOG(error) << buffer.str();
         throw std::runtime_error(buffer.str());
+    }
+
+    // Verify the actual sample rate that was opened
+    const PaStreamInfo* info = audio_interface.getStreamInfo(stream);
+    if (info) {
+        VIAM_SDK_LOG(info) << "Stream opened successfully. Requested sample rate: " << params.sample_rate
+                           << " Hz, Actual sample rate: " << info->sampleRate << " Hz";
+        if (std::abs(info->sampleRate - params.sample_rate) > 1.0) {
+            VIAM_SDK_LOG(error) << "CRITICAL: Sample rate mismatch! Requested " << params.sample_rate
+                               << " Hz but stream opened at " << info->sampleRate << " Hz";
+            audio_interface.closeStream(stream);
+            throw std::runtime_error("Sample rate mismatch: requested " + std::to_string(params.sample_rate) +
+                                   " Hz but got " + std::to_string(info->sampleRate) + " Hz");
+        }
     }
 }
 
