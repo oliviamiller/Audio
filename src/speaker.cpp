@@ -71,9 +71,22 @@ int speakerCallback(const void* inputBuffer,
 
     // Load current playback position from the context
     uint64_t read_pos = ctx->playback_position.load(std::memory_order_relaxed);
+    uint64_t old_read_pos = read_pos;
 
     // Read samples from our circular buffer and put into portaudio output buffer
     const int samples_read = ctx->read_samples(output, total_samples, read_pos);
+
+    // DEBUG: Log callback details every 100 callbacks
+    static std::atomic<int> callback_count{0};
+    if (callback_count.fetch_add(1) % 100 == 0) {
+        VIAM_SDK_LOG(debug) << "[speakerCallback] framesPerBuffer=" << framesPerBuffer
+                           << " num_channels=" << ctx->info.num_channels
+                           << " total_samples=" << total_samples
+                           << " samples_read=" << samples_read
+                           << " old_pos=" << old_read_pos
+                           << " new_pos=" << read_pos
+                           << " advance=" << (read_pos - old_read_pos);
+    }
 
     // Store updated playback position
     ctx->playback_position.store(read_pos, std::memory_order_relaxed);
@@ -178,6 +191,10 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
         playback_context = audio_context_;
         start_position = audio_context_->get_write_position();
 
+        VIAM_SDK_LOG(debug) << "[Play] Audio context info: sample_rate=" << audio_context_->info.sample_rate_hz
+                           << " num_channels=" << audio_context_->info.num_channels
+                           << " buffer_capacity=" << audio_context_->buffer_capacity;
+
         for (size_t i = 0; i < num_samples; i++) {
             audio_context_->write_sample(samples[i]);
         }
@@ -187,6 +204,7 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
 
     // Block until playback position catches up
     VIAM_SDK_LOG(debug) << "Waiting for playback to complete...";
+    int wait_iterations = 0;
     while (playback_context->playback_position.load() - start_position < num_samples) {
         // Check if context changed (reconfigure happened)
         {
@@ -196,6 +214,15 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
                 return;
             }
         }
+
+        // Log progress every second
+        if (++wait_iterations % 100 == 0) {
+            uint64_t current_pos = playback_context->playback_position.load();
+            uint64_t played = current_pos - start_position;
+            VIAM_SDK_LOG(debug) << "[Play] Progress: played=" << played << "/" << num_samples
+                               << " (" << (100.0 * played / num_samples) << "%)";
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
