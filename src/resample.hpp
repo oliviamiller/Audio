@@ -1,10 +1,8 @@
 #pragma once
 
-#include "soxr-lsr.h"
 #include "soxr.h"
 
-
-  // Note: This function expects input_data to be in PCM16
+// Note: This function expects input_data to be in PCM16
 void resample_audio(int input_sample_rate,
                     int output_sample_rate,
                     int num_channels,
