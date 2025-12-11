@@ -27,7 +27,7 @@ AudioBuffer::AudioBuffer(const vsdk::audio_info& audio_info, int buffer_duration
     }
 
     // Pre-allocate circular buffer for N seconds of audio
-    buffer_capacity = audio_info.sample_rate_hz * audio_info.num_channels * buffer_duration_seconds;
+   buffer_capacity = audio_info.sample_rate_hz * audio_info.num_channels * buffer_duration_seconds;
 
     if (buffer_capacity <= 0) {
         VIAM_SDK_LOG(error) << "[AudioBuffer] buffer_capacity must be positive, calculated: " << buffer_capacity;
