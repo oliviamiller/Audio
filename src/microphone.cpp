@@ -121,22 +121,22 @@ std::vector<std::string> Microphone::validate(viam::sdk::ResourceConfig cfg) {
     auto attrs = cfg.attributes();
 
     if (attrs.count("device_name")) {
-            if (!attrs["device_name"].is_a<std::string>()) {
-                VIAM_SDK_LOG(error) << "[validate] device_name attribute must be a string";
-                throw std::invalid_argument("device_name attribute must be a string");
-            }
+        if (!attrs["device_name"].is_a<std::string>()) {
+            VIAM_SDK_LOG(error) << "[validate] device_name attribute must be a string";
+            throw std::invalid_argument("device_name attribute must be a string");
         }
+    }
 
     if (attrs.count("sample_rate")) {
-            if (!attrs["sample_rate"].is_a<double>()) {
-                VIAM_SDK_LOG(error) << "[validate] sample_rate attribute must be a number";
-                throw std::invalid_argument("sample_rate attribute must be a number");
-            }
-            const double sample_rate = *attrs.at("sample_rate").get<double>();
-            if (sample_rate <= 0) {
-                VIAM_SDK_LOG(error) << "[validate] sample rate must be greater than zero";
-                throw std::invalid_argument("sample rate must be greater than zero");
-            }
+        if (!attrs["sample_rate"].is_a<double>()) {
+            VIAM_SDK_LOG(error) << "[validate] sample_rate attribute must be a number";
+            throw std::invalid_argument("sample_rate attribute must be a number");
+        }
+        const double sample_rate = *attrs.at("sample_rate").get<double>();
+        if (sample_rate <= 0) {
+            VIAM_SDK_LOG(error) << "[validate] sample rate must be greater than zero";
+            throw std::invalid_argument("sample rate must be greater than zero");
+        }
     }
     if (attrs.count("num_channels")) {
         if (!attrs["num_channels"].is_a<double>()) {
@@ -151,15 +151,15 @@ std::vector<std::string> Microphone::validate(viam::sdk::ResourceConfig cfg) {
     }
 
     if (attrs.count("latency")) {
-            if (!attrs["latency"].is_a<double>()) {
-                VIAM_SDK_LOG(error) << "[validate] latency attribute must be a number";
-                throw std::invalid_argument("latency attribute must be a number");
-            }
-            const double latency_ms = *attrs.at("latency").get<double>();
-            if (latency_ms < 0) {
-                VIAM_SDK_LOG(error) << "[validate] latency must be non-negative";
-                throw std::invalid_argument("latency must be non-negative");
-            }
+        if (!attrs["latency"].is_a<double>()) {
+            VIAM_SDK_LOG(error) << "[validate] latency attribute must be a number";
+            throw std::invalid_argument("latency attribute must be a number");
+        }
+        const double latency_ms = *attrs.at("latency").get<double>();
+        if (latency_ms < 0) {
+            VIAM_SDK_LOG(error) << "[validate] latency must be non-negative";
+            throw std::invalid_argument("latency must be non-negative");
+        }
     }
 
     if (attrs.count("historical_throttle_ms")) {
@@ -232,7 +232,7 @@ void Microphone::get_audio(std::string const& codec,
     VIAM_SDK_LOG(debug) << "get_audio called";
 
     // Parse codec string to enum
-   const AudioCodec codec_enum = audio::codec::parse_codec(codec);
+    const AudioCodec codec_enum = audio::codec::parse_codec(codec);
 
     // guard to increment and decrement the active stream count
     StreamGuard stream_guard(stream_ctx_mu_, active_streams_);

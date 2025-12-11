@@ -108,16 +108,16 @@ std::vector<std::string> Speaker::validate(vsdk::ResourceConfig cfg) {
         }
     }
 
-     if (attrs.count("sample_rate")) {
-            if (!attrs["sample_rate"].is_a<double>()) {
-                VIAM_SDK_LOG(error) << "[validate] sample_rate attribute must be a number";
-                throw std::invalid_argument("sample_rate attribute must be a number");
-            }
-            double sample_rate = *attrs.at("sample_rate").get<double>();
-            if (sample_rate <= 0) {
-                VIAM_SDK_LOG(error) << "[validate] sample rate must be greater than zero";
-                throw std::invalid_argument("sample rate must be greater than zero");
-            }
+    if (attrs.count("sample_rate")) {
+        if (!attrs["sample_rate"].is_a<double>()) {
+            VIAM_SDK_LOG(error) << "[validate] sample_rate attribute must be a number";
+            throw std::invalid_argument("sample_rate attribute must be a number");
+        }
+        double sample_rate = *attrs.at("sample_rate").get<double>();
+        if (sample_rate <= 0) {
+            VIAM_SDK_LOG(error) << "[validate] sample rate must be greater than zero";
+            throw std::invalid_argument("sample rate must be greater than zero");
+        }
     }
     if (attrs.count("num_channels")) {
         if (!attrs["num_channels"].is_a<double>()) {
