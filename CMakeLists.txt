@@ -17,6 +17,7 @@ add_executable(audio-module
     src/speaker.cpp
     src/discovery.cpp
     src/mp3_encoder.cpp
+    src/mp3_decoder.cpp
 )
 
 find_package(viam-cpp-sdk REQUIRED)
