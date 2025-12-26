@@ -15,7 +15,7 @@ jobs:
       contents: read
       packages: write
     timeout-minutes: 45
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-4cpu-arm
 
     steps:
       - name: Login to GitHub Container Registry
@@ -47,6 +47,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and Push
-        # Only publish to registry on push to main
         if: github.event_name == 'push'
-        run: make docker DOCKER_VERSION=${{ steps.version.outputs.next }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/viam-modules/audio/viam-audio:${{ steps.version.outputs.next }}
+            ghcr.io/viam-modules/audio/viam-audio:latest

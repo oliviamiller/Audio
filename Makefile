@@ -45,11 +45,3 @@ module.tar.gz: conan-pkg meta.json
 
 lint:
 	./bin/lint.sh
-
-docker:
-	docker build --platform linux/arm64 \
-		-t $(DOCKER_REGISTRY)/$(DOCKER_IMAGE):$(DOCKER_VERSION) \
-		-t $(DOCKER_REGISTRY)/$(DOCKER_IMAGE):latest \
-		-f Dockerfile .
-	docker push $(DOCKER_REGISTRY)/$(DOCKER_IMAGE):$(DOCKER_VERSION)
-	docker push $(DOCKER_REGISTRY)/$(DOCKER_IMAGE):latest
