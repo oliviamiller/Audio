@@ -115,12 +115,12 @@ All audio data uses **little-endian** byte order. The specific format depends on
 canon make setup
 ```
 
-## Build Module
+## Build module.tar.gz
 ```bash
 canon make
 ```
 
 ## Build (Development)
 ```bash
-canon make build
+canon make conan-pkg
 ```
