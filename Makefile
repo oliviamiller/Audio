@@ -1,6 +1,5 @@
 OUTPUT_NAME = audio-module
 BIN := build-conan/build/RelWithDebInfo/audio-module
-
 .PHONY: build setup test clean lint conan-pkg test-asan
 
 default: module.tar.gz
