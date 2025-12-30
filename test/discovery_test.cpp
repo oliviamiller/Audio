@@ -29,6 +29,7 @@ protected:
     void createMockDevices(const std::vector<std::tuple<std::string, int, int, double>>& devices) {
         device_infos_.clear();
         device_names_.clear();
+        device_names_.reserve(devices.size()); 
         for (const auto& [name, input_channels, output_channels, sample_rate] : devices) {
             device_names_.push_back(name); // persist string
             PaDeviceInfo info;

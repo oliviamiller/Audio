@@ -13,31 +13,30 @@ $(BIN): conanfile.py src/* bin/* test/*
 test: $(BIN)
 	cd build-conan/build/RelWithDebInfo && ctest --output-on-failure
 
-# Build with AddressSanitizer
+# Build with AddressSanitizer and UndefinedBehaviorSanitizer
 # Recomended runtime options:
 # ASAN_OPTIONS=detect_leaks=1:detect_stack_use_after_return=1:symbolize=1 ./audio-module
 # See docs for full list of runtime options:
 # https://github.com/google/sanitizers/wiki/addresssanitizerflags
 # https://github.com/google/sanitizers/wiki/AddressSanitizerLeakSanitizer#flags
 # https://github.com/google/sanitizers/wiki/SanitizerCommonFlags
+# https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html
 conan-pkg-asan:
-	test -f ./venv/bin/activate && . ./venv/bin/activate; \
 	GTEST_DISCOVERY_TIMEOUT=60 \
-	CXXFLAGS="-fsanitize=address -fsanitize-address-use-after-scope -fno-omit-frame-pointer -g" \
-	CFLAGS="-fsanitize=address -fsanitize-address-use-after-scope -fno-omit-frame-pointer -g" \
-	LDFLAGS="-fsanitize=address" \
-	conan create . \
-	-o:a "viam-cpp-sdk/*:shared=False" \
-	-o "boost/*:without_locale=True" \
-	-o "boost/*:without_stacktrace=True" \
-	-s:a build_type=RelWithDebInfo \
-	-s:a compiler.cppstd=17 \
-	--build=boost \
-	--build=missing
+	CXXFLAGS="-fsanitize=address,undefined -fsanitize-address-use-after-scope -fno-omit-frame-pointer -g" \
+	CFLAGS="-fsanitize=address,undefined -fsanitize-address-use-after-scope -fno-omit-frame-pointer -g" \
+	LDFLAGS="-fsanitize=address,undefined" \
+	bin/build.sh
 
 test-asan: conan-pkg-asan
-	cd build-conan/build/RelWithDebInfo && \
-	ASAN_OPTIONS=detect_leaks=1:detect_stack_use_after_return=1:symbolize=1 ctest --output-on-failure
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		echo "Running ASAN tests on macOS (leak detection not supported)"; \
+		cd build-conan/build/RelWithDebInfo && \
+		ASAN_OPTIONS=detect_stack_use_after_return=1:symbolize=1 ctest --output-on-failure; \
+	else \
+		cd build-conan/build/RelWithDebInfo && \
+		ASAN_OPTIONS=detect_leaks=1:detect_stack_use_after_return=1:symbolize=1 ctest --output-on-failure; \
+	fi
 
 clean:
 	rm -rf build-conan/build/RelWithDebInfo module.tar.gz
