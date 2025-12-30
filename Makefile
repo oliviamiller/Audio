@@ -14,10 +14,15 @@ test: $(BIN)
 	cd build-conan/build/RelWithDebInfo && ctest --output-on-failure
 
 # Build with AddressSanitizer
-# Run with following runtime options:
-# ASAN_OPTIONS=detect_leaks=1:detect_stack_use_after_return=1:symbolize=1
+# Recomended runtime options:
+# ASAN_OPTIONS=detect_leaks=1:detect_stack_use_after_return=1:symbolize=1 ./audio-module
+# See docs for full list of runtime options:
+# https://github.com/google/sanitizers/wiki/addresssanitizerflags
+# https://github.com/google/sanitizers/wiki/AddressSanitizerLeakSanitizer#flags
+# https://github.com/google/sanitizers/wiki/SanitizerCommonFlags
 conan-pkg-asan:
 	test -f ./venv/bin/activate && . ./venv/bin/activate; \
+	GTEST_DISCOVERY_TIMEOUT=60 \
 	CXXFLAGS="-fsanitize=address -fsanitize-address-use-after-scope -fno-omit-frame-pointer -g" \
 	CFLAGS="-fsanitize=address -fsanitize-address-use-after-scope -fno-omit-frame-pointer -g" \
 	LDFLAGS="-fsanitize=address" \
