@@ -56,7 +56,17 @@ function(audio_add_gtest SOURCE_FILE_NAME)
         ${CMAKE_SOURCE_DIR}/src
     )
 
-    gtest_discover_tests(${TEST_EXECUTABLE_NAME})
+    # Allow discovery timeout to be configured via environment variable
+    # Defaults to 5 (GoogleTest default), set to 60 for ASAN builds in Makefile
+    if(DEFINED ENV{GTEST_DISCOVERY_TIMEOUT})
+        set(DISCOVERY_TIMEOUT_VALUE $ENV{GTEST_DISCOVERY_TIMEOUT})
+    else()
+        set(DISCOVERY_TIMEOUT_VALUE 5)
+    endif()
+
+    gtest_discover_tests(${TEST_EXECUTABLE_NAME}
+        DISCOVERY_TIMEOUT ${DISCOVERY_TIMEOUT_VALUE}
+    )
 endfunction()
 
 audio_add_gtest(microphone_test.cpp)
