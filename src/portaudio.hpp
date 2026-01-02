@@ -94,6 +94,25 @@ class RealPortAudio : public PortAudioInterface {
 };
 
 static inline void startPortAudio(const audio::portaudio::PortAudioInterface* pa = nullptr) {
+#ifdef __linux__
+    // Only set PA_ALSA_PLUGHW if PipeWire/PulseAudio is NOT running
+    // Setting it with PipeWire breaks device enumeration
+    // Check if PipeWire or PulseAudio is running by checking for their runtime sockets
+    bool pipewire_running = (access("/run/user/1000/pipewire-0", F_OK) == 0);
+    bool pulseaudio_running = (access("/run/user/1000/pulse/native", F_OK) == 0);
+
+    if (!pipewire_running && !pulseaudio_running) {
+        // Direct ALSA - safe to use plughw
+        const char* existing_value = std::getenv("PA_ALSA_PLUGHW");
+        if (existing_value == nullptr) {
+            setenv("PA_ALSA_PLUGHW", "1", 0);
+            VIAM_SDK_LOG(info) << "Direct ALSA mode: Enabled plughw (PA_ALSA_PLUGHW=1)";
+        }
+    } else {
+        VIAM_SDK_LOG(info) << "PipeWire/PulseAudio detected - not setting PA_ALSA_PLUGHW (would break enumeration)";
+    }
+#endif
+
     // In production pa is nullptr and real_pa is used. For testing, pa is the mock pa
     audio::portaudio::RealPortAudio real_pa;
     const audio::portaudio::PortAudioInterface& audio_interface = pa ? *pa : real_pa;
@@ -105,23 +124,6 @@ static inline void startPortAudio(const audio::portaudio::PortAudioInterface* pa
         VIAM_SDK_LOG(error) << "[startPortAudio] " << buffer.str();
         throw std::runtime_error(buffer.str());
     }
-
-    VIAM_SDK_LOG(info) << "Checking PA_ALSA_PLUGHW (this should always print)";
-#ifdef __linux__
-    VIAM_SDK_LOG(info) << "__linux__ is defined, setting PA_ALSA_PLUGHW";
-    // Set PA_ALSA_PLUGHW AFTER Pa_Initialize() to avoid breaking device enumeration
-    // Setting it before initialization prevents PortAudio from finding devices with PipeWire/PulseAudio
-    // When set after, enumeration uses hw: devices (works everywhere) but opening uses plughw: (gets conversion)
-    const char* existing_value = std::getenv("PA_ALSA_PLUGHW");
-    if (existing_value == nullptr) {
-        setenv("PA_ALSA_PLUGHW", "1", 0);
-        VIAM_SDK_LOG(info) << "Enabled ALSA resampling (PA_ALSA_PLUGHW=1). Set PA_ALSA_PLUGHW=0 in module environment to disable.";
-    } else {
-        VIAM_SDK_LOG(info) << "PA_ALSA_PLUGHW already set to: " << existing_value;
-    }
-#else
-    VIAM_SDK_LOG(info) << "__linux__ NOT defined - PA_ALSA_PLUGHW not set";
-#endif
 
     int numDevices = Pa_GetDeviceCount();
     VIAM_SDK_LOG(info) << "Available input devices:";
