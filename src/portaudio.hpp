@@ -94,25 +94,6 @@ class RealPortAudio : public PortAudioInterface {
 };
 
 static inline void startPortAudio(const audio::portaudio::PortAudioInterface* pa = nullptr) {
-#ifdef __linux__
-    // Only set PA_ALSA_PLUGHW if PipeWire/PulseAudio is NOT running
-    // Setting it with PipeWire breaks device enumeration
-    // Check if PipeWire or PulseAudio is running by checking for their runtime sockets
-    bool pipewire_running = (access("/run/user/1000/pipewire-0", F_OK) == 0);
-    bool pulseaudio_running = (access("/run/user/1000/pulse/native", F_OK) == 0);
-
-    if (!pipewire_running && !pulseaudio_running) {
-        // Direct ALSA - safe to use plughw
-        const char* existing_value = std::getenv("PA_ALSA_PLUGHW");
-        if (existing_value == nullptr) {
-            setenv("PA_ALSA_PLUGHW", "1", 0);
-            VIAM_SDK_LOG(info) << "Direct ALSA mode: Enabled plughw (PA_ALSA_PLUGHW=1)";
-        }
-    } else {
-        VIAM_SDK_LOG(info) << "PipeWire/PulseAudio detected - not setting PA_ALSA_PLUGHW (would break enumeration)";
-    }
-#endif
-
     // In production pa is nullptr and real_pa is used. For testing, pa is the mock pa
     audio::portaudio::RealPortAudio real_pa;
     const audio::portaudio::PortAudioInterface& audio_interface = pa ? *pa : real_pa;
