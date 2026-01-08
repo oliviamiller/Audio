@@ -83,6 +83,12 @@ target_include_directories(audio-module
 )
 target_compile_options(audio-module PRIVATE ${PORTAUDIO_CFLAGS_OTHER})
 
+# Set RPATH to look for libraries in the lib/ directory relative to the executable
+# This allows us to bundle shared libraries with the module
+set_target_properties(audio-module PROPERTIES
+    INSTALL_RPATH "$ORIGIN/lib"
+)
+
 install(TARGETS audio-module DESTINATION .)
 install(FILES meta.json DESTINATION .)
 

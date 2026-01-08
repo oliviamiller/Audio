@@ -25,7 +25,7 @@ class audio(ConanFile):
         "shared": True
     }
 
-    exports_sources = "CMakeLists.txt", "LICENSE", "src/*", "test/*", "meta.json"
+    exports_sources = "CMakeLists.txt", "LICENSE", "src/*", "test/*", "meta.json", "bin/*"
 
     def set_version(self):
         content = load(self, "CMakeLists.txt")
@@ -63,6 +63,19 @@ class audio(ConanFile):
         cmake = CMake(self)
         cmake.install()
 
+        # Bundle JACK libraries on Linux (for zero runtime dependencies)
+        if self.settings.os == "Linux":
+            import subprocess
+            script_path = os.path.join(self.source_folder, "bin", "collect-deps.sh")
+            self.output.info(f"Running {script_path} to bundle JACK libraries")
+            result = subprocess.run([script_path, self.package_folder],
+                                   capture_output=True, text=True)
+            self.output.info(f"collect-deps.sh output:\n{result.stdout}")
+            if result.stderr:
+                self.output.warning(f"collect-deps.sh stderr:\n{result.stderr}")
+            if result.returncode != 0:
+                self.output.warning(f"collect-deps.sh failed with exit code {result.returncode}")
+
     def deploy(self):
         with TemporaryDirectory(dir=self.deploy_folder) as tmp_dir:
             self.output.debug(f"Creating temporary directory {tmp_dir}")
@@ -72,6 +85,13 @@ class audio(ConanFile):
 
             self.output.info("Copying meta.json")
             copy(self, "meta.json", src=self.package_folder, dst=tmp_dir)
+
+            # Copy bundled JACK libraries if they exist (for Linux runtime dependencies)
+            lib_folder = os.path.join(self.package_folder, "lib")
+            if os.path.exists(lib_folder):
+                self.output.info("Copying bundled JACK libraries from lib/")
+                # Only copy JACK libraries, not cmake files or test libraries
+                copy(self, "libjack*.so*", src=lib_folder, dst=os.path.join(tmp_dir, "lib"))
 
             self.output.info("Creating module.tar.gz")
             with tarfile.open(os.path.join(self.deploy_folder, "module.tar.gz"), "w|gz") as tar:
