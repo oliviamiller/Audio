@@ -13,6 +13,7 @@
 #include "audio_stream.hpp"
 #include "audio_utils.hpp"
 #include "portaudio.h"
+#include "audio_codec.hpp"
 #include "portaudio.hpp"
 
 namespace microphone {
@@ -50,6 +51,16 @@ class Microphone final : public viam::sdk::AudioIn, public viam::sdk::Reconfigur
     viam::sdk::audio_properties get_properties(const viam::sdk::ProtoStruct& extra);
     std::vector<viam::sdk::GeometryConfig> get_geometries(const viam::sdk::ProtoStruct& extra);
     void reconfigure(const viam::sdk::Dependencies& deps, const viam::sdk::ResourceConfig& cfg);
+
+    void setup_stream_params(audio::codec::AudioCodec codec_enum,
+                            MP3EncoderContext& mp3_ctx,
+                            bool is_reconfigure,
+                            int& stream_sample_rate,
+                            int& requested_sample_rate,
+                            int& stream_num_channels,
+                            int& stream_historical_throttle_ms,
+                            int& samples_per_chunk,
+                            int& device_samples_per_chunk);
 
     // Member variables
     std::string device_name_;

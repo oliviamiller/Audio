@@ -171,7 +171,7 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
     int audio_sample_rate = info->sample_rate_hz;
     int audio_num_channels = info->num_channels;
 
-    // deocde to pcm16
+    // decode to pcm16
     switch (codec) {
         case AudioCodec::MP3: {
             MP3DecoderContext mp3_ctx;

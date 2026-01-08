@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <sstream>
 #include <vector>
 #include "soxr.h"
@@ -22,7 +23,7 @@ inline void resample_audio(int input_sample_rate,
 
     // This formula to calculate output data length obtained from example here:
     // https://sourceforge.net/p/soxr/code/ci/master/tree/examples/1-single-block.c#l31
-    size_t output_frames = (size_t)(input_frames * output_sample_rate / input_sample_rate + .5);
+    size_t output_frames = static_cast<size_t>(std::lround(input_frames * output_sample_rate / input_sample_rate));
     size_t output_sample_count = output_frames * num_channels;
     VIAM_SDK_LOG(debug) << "Calculated output frames: " << output_frames << " (total samples: " << output_sample_count << ")";
 
