@@ -92,5 +92,17 @@ set_target_properties(audio-module PROPERTIES
 install(TARGETS audio-module DESTINATION .)
 install(FILES meta.json DESTINATION .)
 
+# Bundle JACK libraries on Linux (for zero runtime dependencies)
+if(LINUX)
+    file(GLOB JACK_LIBS
+        "/usr/lib/*/libjack.so*"
+        "/lib/*/libjack.so*"
+    )
+    if(JACK_LIBS)
+        # Copy all JACK library files (symlinks will be resolved to actual files)
+        install(FILES ${JACK_LIBS} DESTINATION lib)
+    endif()
+endif()
+
 enable_testing()
 add_subdirectory(test)

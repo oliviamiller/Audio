@@ -25,7 +25,7 @@ class audio(ConanFile):
         "shared": True
     }
 
-    exports_sources = "CMakeLists.txt", "LICENSE", "src/*", "test/*", "meta.json", "bin/*"
+    exports_sources = "CMakeLists.txt", "LICENSE", "src/*", "test/*", "meta.json"
 
     def set_version(self):
         content = load(self, "CMakeLists.txt")
@@ -62,19 +62,7 @@ class audio(ConanFile):
     def package(self):
         cmake = CMake(self)
         cmake.install()
-
-        # Bundle JACK libraries on Linux (for zero runtime dependencies)
-        if self.settings.os == "Linux":
-            import subprocess
-            script_path = os.path.join(self.source_folder, "bin", "collect-deps.sh")
-            self.output.info(f"Running {script_path} to bundle JACK libraries")
-            result = subprocess.run([script_path, self.package_folder],
-                                   capture_output=True, text=True)
-            self.output.info(f"collect-deps.sh output:\n{result.stdout}")
-            if result.stderr:
-                self.output.warning(f"collect-deps.sh stderr:\n{result.stderr}")
-            if result.returncode != 0:
-                self.output.warning(f"collect-deps.sh failed with exit code {result.returncode}")
+        # JACK libraries are bundled by CMake install() on Linux
 
     def deploy(self):
         with TemporaryDirectory(dir=self.deploy_folder) as tmp_dir:
