@@ -85,14 +85,20 @@ target_compile_options(audio-module PRIVATE ${PORTAUDIO_CFLAGS_OTHER})
 
 # Set RPATH to look for libraries in the lib/ directory relative to the executable
 # This allows us to bundle shared libraries with the module
+# Use --disable-new-dtags to force RPATH (not RUNPATH) for transitive dependencies
 set_target_properties(audio-module PROPERTIES
     INSTALL_RPATH "$ORIGIN/lib"
+    BUILD_WITH_INSTALL_RPATH TRUE
+)
+
+target_link_options(audio-module PRIVATE
+    "LINKER:--disable-new-dtags"
 )
 
 install(TARGETS audio-module DESTINATION .)
 install(FILES meta.json DESTINATION .)
 
-# Bundle JACK libraries into binary
+# Bundle JACK and its dependencies into binary
 if(LINUX)
     file(GLOB JACK_LIBS
         "/usr/lib/*/libjack.so*"
@@ -100,6 +106,19 @@ if(LINUX)
     )
     if(JACK_LIBS)
         install(FILES ${JACK_LIBS} DESTINATION lib)
+    endif()
+
+    # Bundle libdb (required by JACK)
+    file(GLOB LIBDB_LIBS
+        "/lib/aarch64-linux-gnu/libdb-5.3.so*"
+        "/lib/x86_64-linux-gnu/libdb-5.3.so*"
+        "/usr/lib/aarch64-linux-gnu/libdb-5.3.so*"
+        "/usr/lib/x86_64-linux-gnu/libdb-5.3.so*"
+        "/lib/*/libdb-5.3.so*"
+        "/usr/lib/*/libdb-5.3.so*"
+    )
+    if(LIBDB_LIBS)
+        install(FILES ${LIBDB_LIBS} DESTINATION lib)
     endif()
 endif()
 
