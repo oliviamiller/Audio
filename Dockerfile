@@ -1,8 +1,7 @@
 # This Dockerfile is automatically built and published by CI when changed on main branch
 # See .github/workflows/docker-publish.yml
 
-# Pin to Ubuntu 22.04 LTS to ensure consistent libdb5.3 version
-FROM ubuntu:22.04
+FROM ubuntu:jammy
 
 ENV HOME=/root
 ARG DEBIAN_FRONTEND=noninteractive
