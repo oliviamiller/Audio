@@ -108,12 +108,8 @@ if(LINUX)
         install(FILES ${JACK_LIBS} DESTINATION lib)
     endif()
 
-    # Bundle libdb (required by JACK)
+    # Bundle libdb-5.3 (required by JACK on Ubuntu 22.04/Debian 12)
     file(GLOB LIBDB_LIBS
-        "/lib/aarch64-linux-gnu/libdb-5.3.so*"
-        "/lib/x86_64-linux-gnu/libdb-5.3.so*"
-        "/usr/lib/aarch64-linux-gnu/libdb-5.3.so*"
-        "/usr/lib/x86_64-linux-gnu/libdb-5.3.so*"
         "/lib/*/libdb-5.3.so*"
         "/usr/lib/*/libdb-5.3.so*"
     )

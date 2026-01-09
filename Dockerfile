@@ -1,7 +1,8 @@
 # This Dockerfile is automatically built and published by CI when changed on main branch
 # See .github/workflows/docker-publish.yml
 
-FROM ubuntu:jammy
+# Pin to Ubuntu 22.04 LTS to ensure consistent libdb5.3 version
+FROM ubuntu:22.04
 
 ENV HOME=/root
 ARG DEBIAN_FRONTEND=noninteractive
@@ -46,6 +47,13 @@ RUN apt-get -y --no-install-recommends install \
     python3.10-venv \
     python3-pip
 
+# Install audio build dependencies
+RUN apt-get -y --no-install-recommends install \
+    libasound-dev \
+    portaudio19-dev \
+    libjack-dev \
+    libdb5.3-dev \
+    patchelf
 
 RUN python3 -m pip install conan
 RUN conan profile detect
