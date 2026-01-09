@@ -85,15 +85,17 @@ target_compile_options(audio-module PRIVATE ${PORTAUDIO_CFLAGS_OTHER})
 
 # Set RPATH to look for libraries in the lib/ directory relative to the executable
 # This allows us to bundle shared libraries with the module
-# Use --disable-new-dtags to force RPATH (not RUNPATH) for transitive dependencies
 set_target_properties(audio-module PROPERTIES
     INSTALL_RPATH "$ORIGIN/lib"
     BUILD_WITH_INSTALL_RPATH TRUE
 )
 
-target_link_options(audio-module PRIVATE
-    "LINKER:--disable-new-dtags"
-)
+# Use --disable-new-dtags to force RPATH (not RUNPATH) for transitive dependencies
+if(LINUX)
+    target_link_options(audio-module PRIVATE
+        "LINKER:--disable-new-dtags"
+    )
+endif()
 
 install(TARGETS audio-module DESTINATION .)
 install(FILES meta.json DESTINATION .)
