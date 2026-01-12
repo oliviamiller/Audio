@@ -15,7 +15,6 @@ inline void resample_audio(int input_sample_rate,
                            const int16_t* input_samples,
                            size_t input_sample_count,
                            std::vector<int16_t>& output_samples) {
-
     // soxr_oneshot expects "samples per channel" (frames), not total samples
     size_t input_frames = input_sample_count / num_channels;
 
