@@ -182,29 +182,6 @@ Microphone::~Microphone() {
 
 vsdk::Model Microphone::model("viam", "system-audio", "microphone");
 
-ConfigParams parseConfigAttributes(const viam::sdk::ResourceConfig& cfg) {
-    auto attrs = cfg.attributes();
-    ConfigParams params;
-
-    if (attrs.count("device_name")) {
-        params.device_name = *attrs.at("device_name").get<std::string>();
-    }
-
-    if (attrs.count("sample_rate")) {
-        params.sample_rate = static_cast<int>(*attrs.at("sample_rate").get<double>());
-    }
-
-    if (attrs.count("num_channels")) {
-        params.num_channels = static_cast<int>(*attrs.at("num_channels").get<double>());
-    }
-
-    if (attrs.count("latency")) {
-        params.latency_ms = *attrs.at("latency").get<double>();
-    }
-
-    return params;
-}
-
 std::vector<std::string> Microphone::validate(viam::sdk::ResourceConfig cfg) {
     auto attrs = cfg.attributes();
 
