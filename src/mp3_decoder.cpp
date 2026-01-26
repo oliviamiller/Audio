@@ -24,16 +24,16 @@ MP3DecoderContext::~MP3DecoderContext() {
 }
 
 // helper to skip id3 tag: https://id3.org/id3v2.3.0
-static size_t get_id3v2_offset(const uint8_t* data, size_t size) {
-    // For safety; id3 header is 10 bytes
-    if (size < 10) {
+static size_t get_id3v2_offset(const std::vector<uint8_t>& data) {
+    // For safety: id3 header is 10 bytes
+    if (data.size() < 10) {
         return 0;
     }
 
     // ID3v2 header
     if (data[0] == 'I' && data[1] == 'D' && data[2] == '3') {
         // Size is stored as a "syncsafe" integer (7 bits per byte)
-        size_t tag_size = ((data[6] & 0x7F) << 21) | ((data[7] & 0x7F) << 14) | ((data[8] & 0x7F) << 7) | (data[9] & 0x7F);
+        const size_t tag_size = ((data[6] & 0x7F) << 21) | ((data[7] & 0x7F) << 14) | ((data[8] & 0x7F) << 7) | (data[9] & 0x7F);
 
         // Total size = header (10 bytes) + tag payload
         return 10 + tag_size;
@@ -95,31 +95,28 @@ void decode_mp3_to_pcm16(MP3DecoderContext& ctx, const std::vector<uint8_t>& enc
         return;
     }
 
-    std::vector<uint8_t> buffer(encoded_data.begin(), encoded_data.end());
-
     // Skip ID3v2 tag if present
-    size_t offset = get_id3v2_offset(buffer.data(), buffer.size());
+    size_t offset = get_id3v2_offset(encoded_data);
     if (offset > 0) {
         VIAM_SDK_LOG(debug) << "Skipped ID3v2 tag of size " << offset << " bytes";
     }
 
     // Scan for first MP3 frame sync (0xFF followed by 0xE0 mask)
-    while (offset + 1 < buffer.size()) {
-        if (buffer[offset] == 0xFF && (buffer[offset + 1] & 0xE0) == 0xE0) {
+    while (offset + 1 < encoded_data.size()) {
+        if (encoded_data[offset] == 0xFF && (encoded_data[offset + 1] & 0xE0) == 0xE0) {
             break;
         }
         offset++;
     }
 
-    if (offset >= buffer.size()) {
+    if (offset >= encoded_data.size()) {
         VIAM_SDK_LOG(error) << "decode_mp3_to_pcm16: No MP3 frame sync found";
         throw std::runtime_error("decode_mp3_to_pcm16: MP3 decoder: no valid frame found");
     }
 
-    unsigned char* encoded_data_ptr = buffer.data() + offset;
-    const size_t mp3_data_length = buffer.size() - offset;
+    const size_t mp3_data_size = encoded_data.size() - offset;
 
-    VIAM_SDK_LOG(debug) << "Decoding MP3 data, buffer size after sync scan: " << mp3_data_length << " (skipped " << offset
+    VIAM_SDK_LOG(debug) << "Decoding MP3 data, buffer size after sync scan: " << mp3_data_size << " (skipped " << offset
                         << " bytes total)";
 
     // Buffers for decoded PCM samples - one MP3 frame is max 1152 samples
@@ -134,8 +131,12 @@ void decode_mp3_to_pcm16(MP3DecoderContext& ctx, const std::vector<uint8_t>& enc
 
     // Feed ALL data to LAME once - it buffers internally
     // First call may return 0
-    int decoded_samples =
-        hip_decode1_headers(ctx.decoder.get(), encoded_data_ptr, mp3_data_length, pcm_left.data(), pcm_right.data(), &mp3data);
+    int decoded_samples = hip_decode1_headers(ctx.decoder.get(),
+                                              const_cast<unsigned char*>(encoded_data.data() + offset),
+                                              mp3_data_size,
+                                              pcm_left.data(),
+                                              pcm_right.data(),
+                                              &mp3data);
 
     if (decoded_samples < 0) {
         VIAM_SDK_LOG(error) << "[decode_mp3_to_pcm16]: Error decoding MP3 data";
@@ -150,7 +151,7 @@ void decode_mp3_to_pcm16(MP3DecoderContext& ctx, const std::vector<uint8_t>& enc
     }
 
     // Append first frame if we got samples
-    if (decoded_samples > 0 && ctx.num_channels > 0) {
+    if (decoded_samples > 0) {
         append_samples(decoded_data, pcm_left, pcm_right, decoded_samples, ctx.num_channels);
         frames_decoded++;
     }
@@ -182,11 +183,9 @@ void decode_mp3_to_pcm16(MP3DecoderContext& ctx, const std::vector<uint8_t>& enc
             ctx.num_channels = mp3data.stereo;
             VIAM_SDK_LOG(debug) << "found MP3 audio properties: " << ctx.sample_rate << "Hz, " << ctx.num_channels << " channels";
         }
+        append_samples(decoded_data, pcm_left, pcm_right, decoded_samples, ctx.num_channels);
+        frames_decoded++;
 
-        if (ctx.num_channels > 0) {
-            append_samples(decoded_data, pcm_left, pcm_right, decoded_samples, ctx.num_channels);
-            frames_decoded++;
-        }
     }
 
     // Ensure we extracted valid audio properties
