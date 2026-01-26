@@ -116,8 +116,7 @@ void decode_mp3_to_pcm16(MP3DecoderContext& ctx, const std::vector<uint8_t>& enc
 
     const size_t mp3_data_size = encoded_data.size() - offset;
 
-    VIAM_SDK_LOG(debug) << "Decoding MP3 data, buffer size after sync scan: " << mp3_data_size << " (skipped " << offset
-                        << " bytes total)";
+    VIAM_SDK_LOG(debug) << "Decoding MP3 data, buffer size after sync scan: " << mp3_data_size << " (skipped " << offset << " bytes total)";
 
     // Buffers for decoded PCM samples - one MP3 frame is max 1152 samples
     const size_t frame_buffer_size = 1152;  // Samples per channel
@@ -185,7 +184,6 @@ void decode_mp3_to_pcm16(MP3DecoderContext& ctx, const std::vector<uint8_t>& enc
         }
         append_samples(decoded_data, pcm_left, pcm_right, decoded_samples, ctx.num_channels);
         frames_decoded++;
-
     }
 
     // Ensure we extracted valid audio properties
