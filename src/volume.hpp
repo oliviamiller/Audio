@@ -14,12 +14,9 @@ namespace volume {
 // Extract ALSA card identifier from PortAudio device name.
 // PortAudio names look like "bcm2835 Headphones: - (hw:0,0)" on Pi.
 inline std::string extract_alsa_card(const std::string& device_name) {
-    const std::vector<std::string> prefixes = {
-        "plughw:",
-        "hw:"
-    };
+    const std::vector<std::string> prefixes = {"plughw:", "hw:"};
 
-    for (const auto& prefix: prefixes) {
+    for (const auto& prefix : prefixes) {
         const auto pos = device_name.find(prefix);
         if (pos != std::string::npos) {
             const auto comma = device_name.find(',', pos);
@@ -37,7 +34,6 @@ inline void set_volume(const std::string& device_name, int volume) {
     const std::string card = extract_alsa_card(device_name);
 
     VIAM_SDK_LOG(debug) << "[set_volume] Setting ALSA volume to " << volume << " on card " << card;
-
 
     snd_mixer_t* mixer_ptr = nullptr;
     if (int err = snd_mixer_open(&mixer_ptr, 0); err < 0) {
@@ -60,7 +56,8 @@ inline void set_volume(const std::string& device_name, int volume) {
 
     // load elements (ontrols of the mixer)
     if (int err = snd_mixer_load(mixer.get()); err < 0) {
-        VIAM_SDK_LOG(error) << "[set_volume] Failed to load mixer elements: " << snd_strerror(err);;
+        VIAM_SDK_LOG(error) << "[set_volume] Failed to load mixer elements: " << snd_strerror(err);
+        ;
         return;
     }
 
@@ -93,9 +90,9 @@ inline void set_volume(const std::string& device_name, int volume) {
 
     const long target = min + (max - min) * volume / 100;
     if (int err = snd_mixer_selem_set_playback_volume_all(elem, target) < 0; err < 0) {
-        VIAM_SDK_LOG(error) << "[set_volume] Failed to set playback volume: " << snd_strerror(err);;
+        VIAM_SDK_LOG(error) << "[set_volume] Failed to set playback volume: " << snd_strerror(err);
+        ;
     }
-
 }
 
 #else

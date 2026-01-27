@@ -9,8 +9,8 @@
 #include "audio_codec.hpp"
 #include "audio_utils.hpp"
 #include "mp3_decoder.hpp"
-#include "volume.hpp"
 #include "resample.hpp"
+#include "volume.hpp"
 
 namespace speaker {
 namespace vsdk = ::viam::sdk;
@@ -31,7 +31,7 @@ Speaker::Speaker(viam::sdk::Dependencies deps, viam::sdk::ResourceConfig cfg, au
         audio_context_ = setup.audio_context;
         audio::utils::restart_stream(stream_, setup.stream_params, pa_);
         volume_ = setup.config_params.volume;
-        if(volume_) {
+        if (volume_) {
             audio::volume::set_volume(device_name_, *volume_);
         }
     }
@@ -355,7 +355,7 @@ void Speaker::reconfigure(const vsdk::Dependencies& deps, const vsdk::ResourceCo
             latency_ = setup.stream_params.latency_seconds;
             audio_context_ = setup.audio_context;
             volume_ = setup.config_params.volume;
-            if(volume_) {
+            if (volume_) {
                 audio::volume::set_volume(device_name_, *volume_);
             }
         }
