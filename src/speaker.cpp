@@ -315,6 +315,9 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
+    // Wait for audio pipeline to drain
+    std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(latency_ * 1000)));
+
     VIAM_SDK_LOG(debug) << "Audio playback complete";
 }
 
