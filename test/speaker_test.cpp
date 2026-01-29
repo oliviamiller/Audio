@@ -157,6 +157,64 @@ TEST_F(SpeakerTest, ValidateWithVolumeTooLow) {
   EXPECT_THROW(speaker::Speaker::validate(invalid_config), std::invalid_argument);
 }
 
+TEST_F(SpeakerTest, DoCommandSetVolume) {
+    auto attributes = ProtoStruct{};
+    ResourceConfig config(
+        "rdk:component:speaker", "", test_name_, attributes, "",
+        speaker::Speaker::model, LinkConfig{}, log_level::info);
+
+    Dependencies deps{};
+    speaker::Speaker speaker(deps, config, mock_pa_.get());
+
+    ProtoStruct command{{"set_volume", 75.0}};
+    auto result = speaker.do_command(command);
+
+    ASSERT_TRUE(result.count("volume"));
+    EXPECT_EQ(*result.at("volume").get<double>(), 75.0);
+    EXPECT_EQ(speaker.volume_, 75);
+}
+
+TEST_F(SpeakerTest, DoCommandSetVolumeInvalidType) {
+    auto attributes = ProtoStruct{};
+    ResourceConfig config(
+        "rdk:component:speaker", "", test_name_, attributes, "",
+        speaker::Speaker::model, LinkConfig{}, log_level::info);
+
+    Dependencies deps{};
+    speaker::Speaker speaker(deps, config, mock_pa_.get());
+
+    ProtoStruct command{{"set_volume", "loud"}};
+    EXPECT_THROW(speaker.do_command(command), std::invalid_argument);
+}
+
+TEST_F(SpeakerTest, DoCommandSetVolumeOutOfRange) {
+    auto attributes = ProtoStruct{};
+    ResourceConfig config(
+        "rdk:component:speaker", "", test_name_, attributes, "",
+        speaker::Speaker::model, LinkConfig{}, log_level::info);
+
+    Dependencies deps{};
+    speaker::Speaker speaker(deps, config, mock_pa_.get());
+
+    ProtoStruct command_high{{"set_volume", 101.0}};
+    EXPECT_THROW(speaker.do_command(command_high), std::invalid_argument);
+
+    ProtoStruct command_low{{"set_volume", -1.0}};
+    EXPECT_THROW(speaker.do_command(command_low), std::invalid_argument);
+}
+
+TEST_F(SpeakerTest, DoCommandUnknown) {
+    auto attributes = ProtoStruct{};
+    ResourceConfig config(
+        "rdk:component:speaker", "", test_name_, attributes, "",
+        speaker::Speaker::model, LinkConfig{}, log_level::info);
+
+    Dependencies deps{};
+    speaker::Speaker speaker(deps, config, mock_pa_.get());
+
+    ProtoStruct command{{"unknown_command", 1.0}};
+    EXPECT_THROW(speaker.do_command(command), std::invalid_argument);
+}
 
 TEST_F(SpeakerTest, GetPropertiesReturnsCorrectValues) {
     int sample_rate = 48000;

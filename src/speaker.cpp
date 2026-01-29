@@ -153,7 +153,23 @@ std::vector<std::string> Speaker::validate(vsdk::ResourceConfig cfg) {
 }
 
 viam::sdk::ProtoStruct Speaker::do_command(const viam::sdk::ProtoStruct& command) {
-    throw std::runtime_error("do_command is unimplemented");
+    if (command.count("set_volume")) {
+        if (!command.at("set_volume").is_a<double>()) {
+            throw std::invalid_argument("set_volume must be a number");
+        }
+        int vol = static_cast<int>(*command.at("set_volume").get<double>());
+        if (vol < 0 || vol > 100) {
+            throw std::invalid_argument("volume must be between 0 and 100");
+        }
+
+        std::lock_guard<std::mutex> lock(stream_mu_);
+        audio::volume::set_volume(device_name_, vol);
+        volume_ = vol;
+
+        return viam::sdk::ProtoStruct{{"volume", static_cast<double>(vol)}};
+    }
+
+    throw std::invalid_argument("unknown command");
 }
 
 /**
