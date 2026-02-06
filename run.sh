@@ -3,7 +3,7 @@
 # Switch to the console user (whoever is logged in)
 # Linux: running as root is fine
 
-echo "run.sh: running as $(whoami) (uid=$(id -u))" >&2
+echo "run.sh: running as $(whoami) (uid=$(id -u))" >&1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULE_BIN="$SCRIPT_DIR/audio-module"
