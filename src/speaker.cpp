@@ -172,6 +172,18 @@ viam::sdk::ProtoStruct Speaker::do_command(const viam::sdk::ProtoStruct& command
         return viam::sdk::ProtoStruct{{"volume", static_cast<double>(vol)}};
     }
 
+    if (command.count("stop")) {
+        VIAM_SDK_LOG(info) << "Stop command received, interrupting playback";
+        stop_requested_.store(true);
+        // Advance playback position to write position so no more audio is played.
+        std::lock_guard<std::mutex> lock(stream_mu_);
+        if (audio_context_) {
+            audio_context_->playback_position.store(
+                audio_context_->get_write_position(), std::memory_order_relaxed);
+        }
+        return viam::sdk::ProtoStruct{{"stopped", true}};
+    }
+
     throw std::invalid_argument("unknown command");
 }
 
@@ -189,6 +201,7 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
                    boost::optional<viam::sdk::audio_info> info,
                    const viam::sdk::ProtoStruct& extra) {
     std::lock_guard<std::mutex> playback_lock(playback_mu_);
+    stop_requested_.store(false);
 
     VIAM_SDK_LOG(debug) << "Play called, adding samples to playback buffer";
 
@@ -307,6 +320,10 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
     // Block until playback position catches up
     VIAM_SDK_LOG(debug) << "Waiting for playback to complete...";
     while (playback_context->playback_position.load() - start_position < final_num_samples) {
+        if (stop_requested_.load()) {
+            VIAM_SDK_LOG(debug) << "Playback stopped by stop command";
+            return;
+        }
         // Check if context changed (reconfigure happened)
         {
             std::lock_guard<std::mutex> lock(stream_mu_);
