@@ -203,6 +203,25 @@ TEST_F(SpeakerTest, DoCommandSetVolumeOutOfRange) {
     EXPECT_THROW(speaker.do_command(command_low), std::invalid_argument);
 }
 
+
+TEST_F(SpeakerTest, DoCommandStop) {
+    auto attributes = ProtoStruct{};
+    ResourceConfig config(
+        "rdk:component:speaker", "", test_name_, attributes, "",
+        speaker::Speaker::model, LinkConfig{}, log_level::info);
+
+    Dependencies deps{};
+    speaker::Speaker speaker(deps, config, mock_pa_.get());
+
+    ProtoStruct command{{"stop", true}};
+    auto result = speaker.do_command(command);
+
+
+    ASSERT_TRUE(result.count("stopped"));
+    EXPECT_EQ(speaker.stop_requested_, true);
+}
+
+
 TEST_F(SpeakerTest, DoCommandUnknown) {
     auto attributes = ProtoStruct{};
     ResourceConfig config(

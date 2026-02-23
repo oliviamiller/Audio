@@ -75,6 +75,9 @@ class Speaker final : public viam::sdk::AudioOut, public viam::sdk::Reconfigurab
 
     // Audio context for speaker playback (includes buffer and playback position tracking)
     std::shared_ptr<audio::OutputStreamContext> audio_context_;
+
+    // Flag to interrupt playback
+    std::atomic<bool> stop_requested_{false};
 };
 
 }  // namespace speaker

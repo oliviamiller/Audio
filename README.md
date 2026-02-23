@@ -86,6 +86,25 @@ The following attributes are available for the `viam:audio:speaker` model:
 | `latency` | int | **Optional** | Suggested output latency in milliseconds. This controls how much audio PortAudio buffers before making it available. Lower values (5-20ms) provide faster audio output but use more CPU time. Higher values (50-100ms) are more stable but less responsive. If not specified, uses the device's default low latency setting (typically 10-20ms). |
 | `volume` | int | **Optional** | Output volume as percentage (0-100). Supported on Linux devices only. On macOS, use the system volume controls (keyboard keys). |
 
+#### DoCommand
+
+The speaker supports the following DoCommands:
+
+**`set_volume`** — Set the speaker output volume.
+```json
+{"set_volume": 75}
+```
+- Value must be between 0 and 100.
+- **Linux only.** On macOS, use the system volume controls (keyboard keys).
+- Returns: `{"volume": 75}`
+
+**`stop`** — Immediately stop audio playback.
+```json
+{"stop": true}
+```
+- Interrupts any in-progress `Play` call and silences the output.
+- Returns: `{"stopped": true}`
+
 ## Model viam:audio:discovery
 
 This model is used to discover audio devices on your machine.
