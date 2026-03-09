@@ -30,9 +30,9 @@ Speaker::Speaker(viam::sdk::Dependencies deps, viam::sdk::ResourceConfig cfg, au
         device_name_ = setup.stream_params.device_name;
         sample_rate_ = setup.stream_params.sample_rate;
         num_channels_ = setup.stream_params.num_channels;
-        latency_ = setup.stream_params.latency_seconds;
         audio_context_ = setup.audio_context;
         audio::utils::restart_stream(stream_, setup.stream_params, pa_);
+        latency_ = audio::utils::get_stream_latency(stream_, setup.stream_params, pa_);
         volume_ = setup.config_params.volume;
         if (volume_) {
             audio::volume::set_volume(device_name_, *volume_);
@@ -390,7 +390,7 @@ void Speaker::reconfigure(const vsdk::Dependencies& deps, const vsdk::ResourceCo
             device_name_ = setup.stream_params.device_name;
             sample_rate_ = setup.stream_params.sample_rate;
             num_channels_ = setup.stream_params.num_channels;
-            latency_ = setup.stream_params.latency_seconds;
+            latency_ = audio::utils::get_stream_latency(stream_, setup.stream_params, pa_);
             audio_context_ = setup.audio_context;
             volume_ = setup.config_params.volume;
             if (volume_) {
