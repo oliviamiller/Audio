@@ -338,6 +338,7 @@ void Microphone::get_audio(std::string const& codec,
     uint64_t last_chunk_end_position;
     uint64_t last_logged_overflow_count = 0;
     uint64_t last_logged_underflow_count = 0;
+    uint64_t last_staleness_log_ns = 0;
 
     // Setup initial stream parameters and initialize encoder
     setup_stream_params(codec_enum,
@@ -390,7 +391,7 @@ void Microphone::get_audio(std::string const& codec,
 
         // Wait until we have a full chunk worth of samples
         if (available_samples < device_samples_per_chunk) {
-            audio::utils::log_callback_staleness(stream_context->last_callback_time_ns, "[get_audio]", current_stream);
+            audio::utils::log_callback_staleness(stream_context->last_callback_time_ns, "[get_audio]", current_stream, last_staleness_log_ns);
 
             const uint64_t overflow_count = stream_context->input_overflow_count.load();
             if (overflow_count != last_logged_overflow_count) {
@@ -661,9 +662,6 @@ int AudioCallback(const void* inputBuffer,
         return paAbort;
     }
     audio::InputStreamContext* ctx = static_cast<audio::InputStreamContext*>(userData);
-
-    // TEMP: simulate stream stall for testing diagnostics
-    std::this_thread::sleep_for(std::chrono::seconds(2));
 
     if (!ctx) {
         // something wrong, stop stream

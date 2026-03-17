@@ -330,6 +330,7 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
     VIAM_SDK_LOG(debug) << "Waiting for playback to complete...";
     uint64_t last_logged_overflow_count = 0;
     uint64_t last_logged_underflow_count = 0;
+    uint64_t last_staleness_log_ns = 0;
     while (playback_context->playback_position.load() - start_position < final_num_samples) {
         if (stop_requested_.load()) {
             VIAM_SDK_LOG(debug) << "Playback stopped by stop command";
@@ -346,7 +347,7 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
             current_stream = stream_;
         }
 
-        audio::utils::log_callback_staleness(playback_context->last_callback_time_ns, "[play]", current_stream);
+        audio::utils::log_callback_staleness(playback_context->last_callback_time_ns, "[play]", current_stream, last_staleness_log_ns);
 
         const uint64_t overflow_count = playback_context->output_overflow_count.load();
         if (overflow_count != last_logged_overflow_count) {
