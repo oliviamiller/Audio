@@ -349,6 +349,10 @@ inline void log_callback_staleness(const std::atomic<uint64_t>& last_callback_ti
         const uint64_t elapsed_ms = (now_ns - last_cb) / 1'000'000;
         if (elapsed_ms > CALLBACK_STALENESS_THRESHOLD_MS && now_ns - last_log_ns > STALENESS_LOG_THROTTLE_NS) {
             last_log_ns = now_ns;
+            if (!stream) {
+                VIAM_SDK_LOG(error) << context << " log_callback_staleness called with null stream";
+                return;
+            }
             const PaError stream_active = Pa_IsStreamActive(stream);
             VIAM_SDK_LOG(warn) << context << " Audio callback has not fired in " << elapsed_ms << "ms — stream may have stalled"
                                << (stream_active == 1 ? " (stream is active)" : " (stream is inactive)");
