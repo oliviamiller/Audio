@@ -333,5 +333,32 @@ inline AudioDeviceSetup<ContextType> setup_audio_device(const viam::sdk::Resourc
     return setup;
 }
 
+constexpr uint64_t CALLBACK_STALENESS_THRESHOLD_MS = 1000;
+constexpr uint64_t STALENESS_LOG_THROTTLE_NS = 1'000'000'000ULL;  // Log at most once per second
+
+// Logs a warning if the audio callback hasn't fired recently, indicating the stream may have stalled.
+// last_log_ns tracks the last time the warning was emitted to throttle repeated logs — initialize to 0.
+// Should be called from the main thread (not the audio callback).
+inline void log_callback_staleness(const std::atomic<uint64_t>& last_callback_time_ns,
+                                   const std::string& context,
+                                   PaStream* stream,
+                                   uint64_t& last_log_ns) {
+    const uint64_t last_cb = last_callback_time_ns.load();
+    if (last_cb > 0) {
+        const uint64_t now_ns = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+        const uint64_t elapsed_ms = (now_ns - last_cb) / 1'000'000;
+        if (elapsed_ms > CALLBACK_STALENESS_THRESHOLD_MS && now_ns - last_log_ns > STALENESS_LOG_THROTTLE_NS) {
+            last_log_ns = now_ns;
+            if (!stream) {
+                VIAM_SDK_LOG(error) << context << " log_callback_staleness called with null stream";
+                return;
+            }
+            const PaError stream_active = Pa_IsStreamActive(stream);
+            VIAM_SDK_LOG(warn) << context << " Audio callback has not fired in " << elapsed_ms << "ms — stream may have stalled"
+                               << (stream_active == 1 ? " (stream is active)" : " (stream is inactive)");
+        }
+    }
+}
+
 }  // namespace utils
 }  // namespace audio

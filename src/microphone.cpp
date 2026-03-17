@@ -336,6 +336,9 @@ void Microphone::get_audio(std::string const& codec,
 
     MP3EncoderContext mp3_ctx;
     uint64_t last_chunk_end_position;
+    uint64_t last_logged_overflow_count = 0;
+    uint64_t last_logged_underflow_count = 0;
+    uint64_t last_staleness_log_ns = 0;
 
     // Setup initial stream parameters and initialize encoder
     setup_stream_params(codec_enum,
@@ -351,6 +354,7 @@ void Microphone::get_audio(std::string const& codec,
     while (true) {
         // Check if audio_context_ changed (device reconfigured)
         bool context_changed = false;
+        PaStream* current_stream = nullptr;
         {
             std::lock_guard<std::mutex> lock(stream_ctx_mu_);
 
@@ -365,6 +369,7 @@ void Microphone::get_audio(std::string const& codec,
                 read_position = stream_context->get_write_position();
                 // Brief gap in audio, but stream continues
             }
+            current_stream = stream_;
         }
 
         // Reconfigure stream parameters if context changed
@@ -386,6 +391,23 @@ void Microphone::get_audio(std::string const& codec,
 
         // Wait until we have a full chunk worth of samples
         if (available_samples < device_samples_per_chunk) {
+            audio::utils::log_callback_staleness(
+                stream_context->last_callback_time_ns, "[get_audio]", current_stream, last_staleness_log_ns);
+
+            const uint64_t overflow_count = stream_context->input_overflow_count.load();
+            if (overflow_count != last_logged_overflow_count) {
+                VIAM_SDK_LOG(warn) << "[get_audio] Input overflow detected — " << (overflow_count - last_logged_overflow_count)
+                                   << " new overflow(s), " << overflow_count << " total";
+                last_logged_overflow_count = overflow_count;
+            }
+
+            const uint64_t underflow_count = stream_context->input_underflow_count.load();
+            if (underflow_count != last_logged_underflow_count) {
+                VIAM_SDK_LOG(warn) << "[get_audio] Input underflow detected — " << (underflow_count - last_logged_underflow_count)
+                                   << " new underflow(s), " << underflow_count << " total";
+                last_logged_underflow_count = underflow_count;
+            }
+
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
@@ -643,6 +665,15 @@ int AudioCallback(const void* inputBuffer,
     if (!ctx) {
         // something wrong, stop stream
         return paAbort;
+    }
+
+    ctx->last_callback_time_ns.store(static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
+
+    if (statusFlags & paInputOverflow) {
+        ctx->input_overflow_count.fetch_add(1);
+    }
+    if (statusFlags & paInputUnderflow) {
+        ctx->input_underflow_count.fetch_add(1);
     }
 
     if (inputBuffer == nullptr) {

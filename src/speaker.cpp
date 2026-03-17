@@ -77,6 +77,15 @@ int speakerCallback(const void* inputBuffer,
 
     audio::OutputStreamContext* const ctx = static_cast<audio::OutputStreamContext*>(userData);
 
+    ctx->last_callback_time_ns.store(static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
+
+    if (statusFlags & paOutputOverflow) {
+        ctx->output_overflow_count.fetch_add(1);
+    }
+    if (statusFlags & paOutputUnderflow) {
+        ctx->output_underflow_count.fetch_add(1);
+    }
+
     int16_t* const output = static_cast<int16_t*>(outputBuffer);
 
     const uint64_t total_samples = framesPerBuffer * ctx->info.num_channels;
@@ -318,19 +327,41 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
 
     // Block until playback position catches up
     VIAM_SDK_LOG(debug) << "Waiting for playback to complete...";
+    uint64_t last_logged_overflow_count = 0;
+    uint64_t last_logged_underflow_count = 0;
+    uint64_t last_staleness_log_ns = 0;
     while (playback_context->playback_position.load() - start_position < final_num_samples) {
         if (stop_requested_.load()) {
             VIAM_SDK_LOG(debug) << "Playback stopped by stop command";
             return;
         }
         // Check if context changed (reconfigure happened)
+        PaStream* current_stream = nullptr;
         {
             std::lock_guard<std::mutex> lock(stream_mu_);
             if (audio_context_ != playback_context) {
                 VIAM_SDK_LOG(debug) << "Audio playback interrupted by reconfigure, exiting";
                 return;
             }
+            current_stream = stream_;
         }
+
+        audio::utils::log_callback_staleness(playback_context->last_callback_time_ns, "[play]", current_stream, last_staleness_log_ns);
+
+        const uint64_t overflow_count = playback_context->output_overflow_count.load();
+        if (overflow_count != last_logged_overflow_count) {
+            VIAM_SDK_LOG(warn) << "[play] Output overflow detected — " << (overflow_count - last_logged_overflow_count)
+                               << " new overflow(s), " << overflow_count << " total";
+            last_logged_overflow_count = overflow_count;
+        }
+
+        const uint64_t underflow_count = playback_context->output_underflow_count.load();
+        if (underflow_count != last_logged_underflow_count) {
+            VIAM_SDK_LOG(warn) << "[play] Output underflow detected — " << (underflow_count - last_logged_underflow_count)
+                               << " new underflow(s), " << underflow_count << " total";
+            last_logged_underflow_count = underflow_count;
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
