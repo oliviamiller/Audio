@@ -34,6 +34,9 @@ class AudioBuffer {
     int buffer_capacity;
     std::atomic<uint64_t> total_samples_written;
     std::unique_ptr<std::atomic<int16_t>[]> audio_buffer;
+    // Updated by the audio callback on every invocation. Used by the main thread
+    // to detect if the callback has stopped firing (e.g. due to USB errors).
+    std::atomic<uint64_t> last_callback_time_ns{0};
 };
 
 }  // namespace audio

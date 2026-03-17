@@ -333,5 +333,26 @@ inline AudioDeviceSetup<ContextType> setup_audio_device(const viam::sdk::Resourc
     return setup;
 }
 
+constexpr uint64_t CALLBACK_STALENESS_THRESHOLD_MS = 1000;
+
+// Logs a warning if the audio callback hasn't fired recently, indicating the stream may have stalled.
+// Should be called from the main thread (not the audio callback).
+inline void log_callback_staleness(const std::atomic<uint64_t>& last_callback_time_ns,
+                                   const std::string& context,
+                                   PaStream* stream) {
+    const uint64_t last_cb = last_callback_time_ns.load();
+    if (last_cb > 0) {
+        const uint64_t now_ns =
+            static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+        const uint64_t elapsed_ms = (now_ns - last_cb) / 1'000'000;
+        if (elapsed_ms > CALLBACK_STALENESS_THRESHOLD_MS) {
+            const PaError stream_active = Pa_IsStreamActive(stream);
+            VIAM_SDK_LOG(warn) << context << " Audio callback has not fired in " << elapsed_ms
+                               << "ms — stream may have stalled"
+                               << (stream_active == 1 ? " (stream is active)" : " (stream is inactive)");
+        }
+    }
+}
+
 }  // namespace utils
 }  // namespace audio
