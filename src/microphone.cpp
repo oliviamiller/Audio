@@ -391,21 +391,20 @@ void Microphone::get_audio(std::string const& codec,
 
         // Wait until we have a full chunk worth of samples
         if (available_samples < device_samples_per_chunk) {
-            audio::utils::log_callback_staleness(stream_context->last_callback_time_ns, "[get_audio]", current_stream, last_staleness_log_ns);
+            audio::utils::log_callback_staleness(
+                stream_context->last_callback_time_ns, "[get_audio]", current_stream, last_staleness_log_ns);
 
             const uint64_t overflow_count = stream_context->input_overflow_count.load();
             if (overflow_count != last_logged_overflow_count) {
-                VIAM_SDK_LOG(warn) << "[get_audio] Input overflow detected — "
-                                   << (overflow_count - last_logged_overflow_count) << " new overflow(s), "
-                                   << overflow_count << " total";
+                VIAM_SDK_LOG(warn) << "[get_audio] Input overflow detected — " << (overflow_count - last_logged_overflow_count)
+                                   << " new overflow(s), " << overflow_count << " total";
                 last_logged_overflow_count = overflow_count;
             }
 
             const uint64_t underflow_count = stream_context->input_underflow_count.load();
             if (underflow_count != last_logged_underflow_count) {
-                VIAM_SDK_LOG(warn) << "[get_audio] Input underflow detected — "
-                                   << (underflow_count - last_logged_underflow_count) << " new underflow(s), "
-                                   << underflow_count << " total";
+                VIAM_SDK_LOG(warn) << "[get_audio] Input underflow detected — " << (underflow_count - last_logged_underflow_count)
+                                   << " new underflow(s), " << underflow_count << " total";
                 last_logged_underflow_count = underflow_count;
             }
 
@@ -668,8 +667,7 @@ int AudioCallback(const void* inputBuffer,
         return paAbort;
     }
 
-    ctx->last_callback_time_ns.store(
-        static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
+    ctx->last_callback_time_ns.store(static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
 
     if (statusFlags & paInputOverflow) {
         ctx->input_overflow_count.fetch_add(1);

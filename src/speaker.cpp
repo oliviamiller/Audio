@@ -77,8 +77,7 @@ int speakerCallback(const void* inputBuffer,
 
     audio::OutputStreamContext* const ctx = static_cast<audio::OutputStreamContext*>(userData);
 
-    ctx->last_callback_time_ns.store(
-        static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
+    ctx->last_callback_time_ns.store(static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
 
     if (statusFlags & paOutputOverflow) {
         ctx->output_overflow_count.fetch_add(1);
@@ -351,17 +350,15 @@ void Speaker::play(std::vector<uint8_t> const& audio_data,
 
         const uint64_t overflow_count = playback_context->output_overflow_count.load();
         if (overflow_count != last_logged_overflow_count) {
-            VIAM_SDK_LOG(warn) << "[play] Output overflow detected — "
-                               << (overflow_count - last_logged_overflow_count) << " new overflow(s), "
-                               << overflow_count << " total";
+            VIAM_SDK_LOG(warn) << "[play] Output overflow detected — " << (overflow_count - last_logged_overflow_count)
+                               << " new overflow(s), " << overflow_count << " total";
             last_logged_overflow_count = overflow_count;
         }
 
         const uint64_t underflow_count = playback_context->output_underflow_count.load();
         if (underflow_count != last_logged_underflow_count) {
-            VIAM_SDK_LOG(warn) << "[play] Output underflow detected — "
-                               << (underflow_count - last_logged_underflow_count) << " new underflow(s), "
-                               << underflow_count << " total";
+            VIAM_SDK_LOG(warn) << "[play] Output underflow detected — " << (underflow_count - last_logged_underflow_count)
+                               << " new underflow(s), " << underflow_count << " total";
             last_logged_underflow_count = underflow_count;
         }
 
