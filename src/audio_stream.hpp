@@ -25,6 +25,8 @@ class InputStreamContext : public AudioBuffer {
     std::chrono::system_clock::time_point stream_start_time;
     double first_sample_adc_time;
     std::atomic<bool> first_callback_captured;
+    std::atomic<uint64_t> input_overflow_count{0};
+    std::atomic<uint64_t> input_underflow_count{0};
     std::chrono::nanoseconds calculate_sample_timestamp(uint64_t sample_number) noexcept;
     uint64_t get_sample_number_from_timestamp(int64_t timestamp) noexcept;
 };
@@ -34,6 +36,8 @@ class InputStreamContext : public AudioBuffer {
 class OutputStreamContext : public AudioBuffer {
    public:
     std::atomic<uint64_t> playback_position;
+    std::atomic<uint64_t> output_overflow_count{0};
+    std::atomic<uint64_t> output_underflow_count{0};
     OutputStreamContext(const vsdk::audio_info& audio_info, int buffer_duration_seconds = BUFFER_DURATION_SECONDS);
 };
 
