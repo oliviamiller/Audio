@@ -519,7 +519,7 @@ TEST_F(MicrophoneTest, ReconfigureDifferentDeviceName) {
     EXPECT_NO_THROW(mic.reconfigure(test_deps_, new_config));
 
     EXPECT_EQ(mic.device_name_, new_device_name);
-    EXPECT_EQ(mic.sample_rate_, 44100);
+    EXPECT_EQ(mic.sample_rate_, 22000);
     EXPECT_EQ(mic.requested_sample_rate_, 22000);
     EXPECT_EQ(mic.num_channels_, 2);
 }
@@ -573,7 +573,7 @@ TEST_F(MicrophoneTest, ReconfigureDifferentNumChannels) {
     EXPECT_NO_THROW(mic.reconfigure(test_deps_, new_config));
 
     EXPECT_EQ(mic.device_name_, testDeviceName);
-    EXPECT_EQ(mic.sample_rate_, 44100);
+    EXPECT_EQ(mic.sample_rate_, test_utils::DEFAULT_DEVICE_SAMPLE_RATE);
     EXPECT_EQ(mic.num_channels_, 1);
 }
 
@@ -585,7 +585,7 @@ TEST_F(MicrophoneTest, ReconfigureChangesAudioContext) {
     // Get the initial audio_context_ pointer and verify its properties
     auto initial_context = mic.audio_context_;
     ASSERT_NE(initial_context, nullptr);
-    EXPECT_EQ(initial_context->info.sample_rate_hz, 44100);
+    EXPECT_EQ(initial_context->info.sample_rate_hz, test_utils::DEFAULT_DEVICE_SAMPLE_RATE);
     EXPECT_EQ(initial_context->info.num_channels, 1);
     EXPECT_EQ(initial_context->info.codec, viam::sdk::audio_codecs::PCM_16);
 
@@ -615,8 +615,8 @@ TEST_F(MicrophoneTest, ReconfigureChangesAudioContext) {
     ASSERT_NE(new_context, nullptr);
     EXPECT_NE(new_context, initial_context);
 
-    // audio context will have device info sample rate
-    EXPECT_EQ(new_context->info.sample_rate_hz, 44100);
+    // audio context will have the natively supported requested sample rate
+    EXPECT_EQ(new_context->info.sample_rate_hz, 48000);
     EXPECT_EQ(new_context->info.num_channels, 2);
     EXPECT_EQ(new_context->info.codec, viam::sdk::audio_codecs::PCM_16);
 

@@ -289,7 +289,6 @@ TEST_F(AudioUtilsTest, SetupAudioDeviceInputStreamContext) {
     device1.name = "Test Input Device";
     device1.maxInputChannels = 2;
     device1.maxOutputChannels = 0;
-    device1.defaultSampleRate = 44100.0;
     device1.defaultLowInputLatency = 0.01;
 
     ON_CALL(*mock_pa_, getDeviceCount()).WillByDefault(::testing::Return(1));
@@ -315,15 +314,14 @@ TEST_F(AudioUtilsTest, SetupAudioDeviceInputStreamContext) {
         mock_pa_.get(),
         30
     );
-
-    EXPECT_EQ(setup.stream_params.sample_rate, device1.defaultSampleRate);
+    EXPECT_EQ(setup.stream_params.sample_rate, 48000);
     EXPECT_EQ(setup.stream_params.num_channels, 2);
     EXPECT_EQ(setup.stream_params.callback, testInputCallback);
     EXPECT_TRUE(setup.stream_params.is_input);
     EXPECT_NE(setup.audio_context, nullptr);
     EXPECT_EQ(setup.stream_params.user_data, setup.audio_context.get());
 
-    EXPECT_EQ(setup.audio_context->info.sample_rate_hz,device1.defaultSampleRate );
+    EXPECT_EQ(setup.audio_context->info.sample_rate_hz, 48000);
     EXPECT_EQ(setup.audio_context->info.num_channels, 2);
     EXPECT_EQ(setup.audio_context->info.codec, viam::sdk::audio_codecs::PCM_16);
 }
