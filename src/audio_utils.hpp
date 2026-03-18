@@ -43,7 +43,10 @@ struct StreamParams {
     std::string device_name;
     int sample_rate;
     int num_channels;
-    double latency_seconds;
+    // Hint passed to PortAudio when opening the stream. PortAudio may choose the closest
+    // viable latency instead, rounding up to the next practical value.
+    // Use get_stream_latency() after opening the stream to retrieve the actual latency PortAudio selected.
+    double suggested_latency_seconds;
     bool is_input;
     PaStreamCallback* callback;
     void* user_data;  // Points to AudioStreamContext* or PlaybackBuffer*
@@ -171,9 +174,9 @@ inline StreamParams setupStreamFromConfig(const ConfigParams& params,
     const double default_latency =
         (direction == StreamDirection::Input) ? deviceInfo->defaultLowInputLatency : deviceInfo->defaultLowOutputLatency;
 
-    stream_params.latency_seconds = params.latency_ms.has_value() ? params.latency_ms.value() / 1000.0 : default_latency;
+    stream_params.suggested_latency_seconds = params.latency_ms.has_value() ? params.latency_ms.value() / 1000.0 : default_latency;
 
-    VIAM_SDK_LOG(debug) << "[setupStreamFromConfig] Using latency " << stream_params.latency_seconds;
+    VIAM_SDK_LOG(debug) << "[setupStreamFromConfig] Using latency " << stream_params.suggested_latency_seconds;
 
     // Validate num_channels against device's max channels
     const int max_channels = (direction == StreamDirection::Input) ? deviceInfo->maxInputChannels : deviceInfo->maxOutputChannels;
@@ -202,7 +205,7 @@ inline void openStream(PaStream*& stream, const StreamParams& params, const audi
     stream_params.device = params.device_index;
     stream_params.channelCount = params.num_channels;
     stream_params.sampleFormat = paInt16;
-    stream_params.suggestedLatency = params.latency_seconds;
+    stream_params.suggestedLatency = params.suggested_latency_seconds;
     stream_params.hostApiSpecificStreamInfo = nullptr;
 
     // Determine which parameter is input and which is output
@@ -218,7 +221,7 @@ inline void openStream(PaStream*& stream, const StreamParams& params, const audi
                << "  - Sample rate: " << params.sample_rate << " Hz\n"
                << "  - Channels: " << params.num_channels << "\n"
                << "  - Format: 16-bit PCM\n"
-               << "  - Latency: " << params.latency_seconds << " seconds";
+               << "  - Latency: " << params.suggested_latency_seconds << " seconds";
         VIAM_SDK_LOG(error) << buffer.str();
         throw std::runtime_error(buffer.str());
     }
@@ -278,6 +281,18 @@ inline void shutdown_stream(PaStream* stream, const audio::portaudio::PortAudioI
         VIAM_SDK_LOG(error) << "[shutdown_stream] " << buffer.str();
         throw std::runtime_error(buffer.str());
     }
+}
+
+// Returns the actual latency reported by PortAudio after stream open (inputLatency for
+// input streams, outputLatency for output streams). Falls back to suggested_latency_seconds
+// if stream info is unavailable.
+inline double get_stream_latency(PaStream* stream, const StreamParams& params, const audio::portaudio::PortAudioInterface* pa = nullptr) {
+    audio::portaudio::RealPortAudio real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa ? *pa : real_pa;
+    const PaStreamInfo* stream_info = audio_interface.getStreamInfo(stream);
+    if (!stream_info)
+        return params.suggested_latency_seconds;
+    return params.is_input ? stream_info->inputLatency : stream_info->outputLatency;
 }
 
 inline void restart_stream(PaStream*& stream, const StreamParams& params, const audio::portaudio::PortAudioInterface* pa = nullptr) {
