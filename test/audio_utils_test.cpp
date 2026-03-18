@@ -162,7 +162,7 @@ TEST_F(AudioUtilsTest, SetupStreamFromConfigUsesProvidedValues) {
 
     EXPECT_EQ(stream_params.sample_rate, 48000);  // natively supported by mock, so used directly
     EXPECT_EQ(stream_params.num_channels, 2);
-    EXPECT_DOUBLE_EQ(stream_params.latency_seconds, 0.1);
+    EXPECT_DOUBLE_EQ(stream_params.suggested_latency_seconds, 0.1);
 }
 
 TEST_F(AudioUtilsTest, SetupStreamFromConfigInputUsesSampleRateWhenNativelySupported) {
@@ -398,6 +398,48 @@ TEST_F(AudioUtilsTest, SetupAudioDeviceUsesConfigParams) {
     EXPECT_TRUE(setup.config_params.historical_throttle_ms.has_value());
     EXPECT_EQ(setup.config_params.historical_throttle_ms.value(), 100);
     EXPECT_EQ(setup.config_params.device_name, "My Device");
+}
+
+TEST_F(AudioUtilsTest, GetStreamLatencyFallsBackWhenStreamInfoNull) {
+    using ::testing::Return;
+    ON_CALL(*mock_pa_, getStreamInfo(::testing::_)).WillByDefault(Return(nullptr));
+
+    audio::utils::StreamParams params;
+    params.suggested_latency_seconds = 0.05;
+    params.is_input = false;
+
+    double latency = audio::utils::get_stream_latency(nullptr, params, mock_pa_.get());
+    EXPECT_DOUBLE_EQ(latency, 0.05);
+}
+
+TEST_F(AudioUtilsTest, GetStreamLatencyReturnsOutputLatency) {
+    using ::testing::Return;
+    PaStreamInfo stream_info;
+    stream_info.inputLatency  = 0.02;
+    stream_info.outputLatency = 0.04;
+    ON_CALL(*mock_pa_, getStreamInfo(::testing::_)).WillByDefault(Return(&stream_info));
+
+    audio::utils::StreamParams params;
+    params.suggested_latency_seconds = 0.01;
+    params.is_input = false;
+
+    double latency = audio::utils::get_stream_latency(nullptr, params, mock_pa_.get());
+    EXPECT_DOUBLE_EQ(latency, 0.04);
+}
+
+TEST_F(AudioUtilsTest, GetStreamLatencyReturnsInputLatency) {
+    using ::testing::Return;
+    PaStreamInfo stream_info;
+    stream_info.inputLatency  = 0.02;
+    stream_info.outputLatency = 0.04;
+    ON_CALL(*mock_pa_, getStreamInfo(::testing::_)).WillByDefault(Return(&stream_info));
+
+    audio::utils::StreamParams params;
+    params.suggested_latency_seconds = 0.01;
+    params.is_input = true;
+
+    double latency = audio::utils::get_stream_latency(nullptr, params, mock_pa_.get());
+    EXPECT_DOUBLE_EQ(latency, 0.02);
 }
 
 int main(int argc, char **argv) {
