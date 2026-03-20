@@ -267,6 +267,13 @@ inline void openStream(PaStream*& stream, const StreamParams& params, const audi
         VIAM_SDK_LOG(error) << buffer.str();
         throw std::runtime_error(buffer.str());
     }
+
+    const PaStreamInfo* stream_info = audio_interface.getStreamInfo(stream);
+    if (stream_info) {
+        const double actual_latency = params.is_input ? stream_info->inputLatency : stream_info->outputLatency;
+        VIAM_SDK_LOG(debug) << "[openStream] Actual latency selected by PortAudio: " << actual_latency << " seconds"
+                            << " (suggested: " << params.suggested_latency_seconds << " seconds)";
+    }
 }
 
 inline void startStream(PaStream* stream, const audio::portaudio::PortAudioInterface* pa = nullptr) {

@@ -258,6 +258,16 @@ void Microphone::reconfigure(const viam::sdk::Dependencies& deps, const viam::sd
             }
         }
 
+        // Close the existing stream before setting up audio device — Pa_IsFormatSupported internally tries to
+        // open the device, which fails if it's already in use.
+        {
+            std::lock_guard<std::mutex> lock(stream_ctx_mu_);
+            if (stream_) {
+                audio::utils::shutdown_stream(stream_, pa_);
+                stream_ = nullptr;
+            }
+        }
+
         auto setup =
             audio::utils::setup_audio_device<audio::InputStreamContext>(cfg, audio::utils::StreamDirection::Input, AudioCallback, pa_);
 
@@ -265,10 +275,8 @@ void Microphone::reconfigure(const viam::sdk::Dependencies& deps, const viam::sd
         {
             std::lock_guard<std::mutex> lock(stream_ctx_mu_);
 
-            // Stop the stream first before replacing audio_context_
-            // Otherwise the callback thread may still be accessing the old context
-            // after we destroy it (heap-use-after-free)
-            audio::utils::restart_stream(stream_, setup.stream_params, pa_);
+            audio::utils::openStream(stream_, setup.stream_params, pa_);
+            audio::utils::startStream(stream_, pa_);
             device_name_ = setup.stream_params.device_name;
             device_index_ = setup.stream_params.device_index;
             sample_rate_ = setup.stream_params.sample_rate;  // Device's native sample rate
