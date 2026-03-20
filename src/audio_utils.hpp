@@ -157,15 +157,34 @@ inline StreamParams setupStreamFromConfig(const ConfigParams& params,
     stream_params.device_index = device_index;
     stream_params.device_name = deviceInfo->name;
 
-    // Resolve final values (use params if specified, otherwise device defaults)
-    // For microphone (input): always use device default for stream
-    // For speaker (output): respect configured rate if provided, allows users to optimize playback
-    if (direction == StreamDirection::Input) {
-        stream_params.sample_rate = static_cast<int>(deviceInfo->defaultSampleRate);
+    stream_params.num_channels = params.num_channels.value_or(1);
+
+    // For input streams: use the requested sample rate if PortAudio supports it natively
+    // (avoiding unnecessary resampling), otherwise fall back to the device default and resample.
+    // For output streams: always respect the configured rate if provided.
+    if (direction == StreamDirection::Input && params.sample_rate.has_value()) {
+        // PortAudio has no API to check sample rate support in isolation, so we use
+        // Pa_IsFormatSupported with otherwise valid params (known-good format, channels,
+        // and default latency) to isolate the sample rate as the only variable.
+        PaStreamParameters test_params;
+        test_params.device = device_index;
+        test_params.channelCount = stream_params.num_channels;
+        test_params.sampleFormat = paInt16;
+        test_params.suggestedLatency = deviceInfo->defaultLowInputLatency;
+        test_params.hostApiSpecificStreamInfo = nullptr;
+        if (audio_interface.isFormatSupported(&test_params, nullptr, params.sample_rate.value()) == paNoError) {
+            VIAM_SDK_LOG(info) << "[setupStreamFromConfig] Requested sample rate " << params.sample_rate.value()
+                               << " Hz is natively supported, using it directly";
+            stream_params.sample_rate = params.sample_rate.value();
+        } else {
+            const int default_rate = static_cast<int>(deviceInfo->defaultSampleRate);
+            VIAM_SDK_LOG(info) << "[setupStreamFromConfig] Requested sample rate " << params.sample_rate.value()
+                               << " Hz is not natively supported, falling back to device default " << default_rate << " Hz";
+            stream_params.sample_rate = default_rate;
+        }
     } else {
         stream_params.sample_rate = params.sample_rate.value_or(static_cast<int>(deviceInfo->defaultSampleRate));
     }
-    stream_params.num_channels = params.num_channels.value_or(1);
 
     VIAM_SDK_LOG(debug) << "[setupStreamFromConfig] Using sample rate " << stream_params.sample_rate
                         << " and num channels: " << stream_params.num_channels;
@@ -246,6 +265,13 @@ inline void openStream(PaStream*& stream, const StreamParams& params, const audi
                << ", latency=" << stream_params.suggestedLatency << "s)";
         VIAM_SDK_LOG(error) << buffer.str();
         throw std::runtime_error(buffer.str());
+    }
+
+    const PaStreamInfo* stream_info = audio_interface.getStreamInfo(stream);
+    if (stream_info) {
+        const double actual_latency = params.is_input ? stream_info->inputLatency : stream_info->outputLatency;
+        VIAM_SDK_LOG(debug) << "[openStream] Actual latency selected by PortAudio: " << actual_latency << " seconds"
+                            << " (suggested: " << params.suggested_latency_seconds << " seconds)";
     }
 }
 
