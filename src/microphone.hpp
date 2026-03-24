@@ -80,6 +80,7 @@ void setup_stream_params(audio::codec::AudioCodec codec_enum,
     const audio::portaudio::PortAudioInterface* pa_;
     // Count of active get_audio calls
     int active_streams_;
+    int restart_attempts_;
 
     audio::utils::StreamParams stream_params_;
 };

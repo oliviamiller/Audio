@@ -91,17 +91,19 @@ class StreamGuard {
 void Microphone::try_restart_stalled_stream(const std::shared_ptr<audio::InputStreamContext>& stream_context) {
     std::lock_guard<std::mutex> lock(stream_ctx_mu_);
     // Only restart if this is still the active context — another thread may have already restarted.
-    if (stream_context != audio_context_ || !stream_) {
+    if (stream_context != audio_context_) {
         return;
     }
 
-    VIAM_SDK_LOG(warn) << "[get_audio] Restarting stalled stream";
-    try {
-        audio::utils::shutdown_stream(stream_, pa_);
-    } catch (const std::exception& e) {
-        VIAM_SDK_LOG(error) << "[get_audio] Error shutting down stalled stream: " << e.what();
+    VIAM_SDK_LOG(warn) << "[get_audio] Restarting stalled stream (attempt " << restart_attempts_ + 1 << "/3)";
+    if (stream_) {
+        try {
+            audio::utils::abort_stream(stream_, pa_);
+        } catch (const std::exception& e) {
+            VIAM_SDK_LOG(error) << "[get_audio] Error shutting down stalled stream: " << e.what();
+        }
+        stream_ = nullptr;
     }
-    stream_ = nullptr;
 
     const viam::sdk::audio_info info{
         viam::sdk::audio_codecs::PCM_16, stream_params_.sample_rate, stream_params_.num_channels};
@@ -111,9 +113,15 @@ void Microphone::try_restart_stalled_stream(const std::shared_ptr<audio::InputSt
         audio::utils::restart_stream(stream_, stream_params_, new_context.get(), pa_);
         latency_ = audio::utils::get_stream_latency(stream_, stream_params_, pa_);
         audio_context_ = new_context;
+        restart_attempts_ = 0;
         VIAM_SDK_LOG(info) << "[get_audio] Stream restarted successfully";
     } catch (const std::exception& e) {
-        VIAM_SDK_LOG(error) << "[get_audio] Failed to restart stream: " << e.what();
+        ++restart_attempts_;
+        if (restart_attempts_ >= 3) {
+            VIAM_SDK_LOG(error) << "[get_audio] Failed to restart stream after 3 attempts, giving up: " << e.what();
+            throw;
+        }
+        VIAM_SDK_LOG(error) << "[get_audio] Failed to restart stream (attempt " << restart_attempts_ << "/3): " << e.what();
     }
 }
 
@@ -164,7 +172,7 @@ void Microphone::setup_stream_params(AudioCodec codec_enum,
 }
 
 Microphone::Microphone(viam::sdk::Dependencies deps, viam::sdk::ResourceConfig cfg, audio::portaudio::PortAudioInterface* pa)
-    : viam::sdk::AudioIn(cfg.name()), stream_(nullptr), pa_(pa), active_streams_(0) {
+    : viam::sdk::AudioIn(cfg.name()), stream_(nullptr), pa_(pa), active_streams_(0), restart_attempts_(0) {
 #ifdef __APPLE__
     if (geteuid() == 0) {
         std::ostringstream error_msg;
@@ -382,21 +390,22 @@ void Microphone::get_audio(std::string const& codec,
                         device_samples_per_chunk);
 
     while (true) {
-        // Check if audio_context_ changed (device reconfigured)
+        // Check if audio_context_ changed
         bool context_changed = false;
         PaStream* current_stream = nullptr;
         {
             std::lock_guard<std::mutex> lock(stream_ctx_mu_);
 
-            // Detect context change (device reconfigured)
+            // Detect context change (device reconfigured or stream restarted)
             if (audio_context_ != stream_context) {
                 if (stream_context != nullptr) {
-                    VIAM_SDK_LOG(info) << "Detected stream change (device reconfigure)";
+                    VIAM_SDK_LOG(info) << "Detected stream change";
                     context_changed = true;
                 }
                 // Switch to new context and reset read position
                 stream_context = audio_context_;
                 read_position = stream_context->get_write_position();
+                restart_attempts_ = 0;
                 // Brief gap in audio, but stream continues
             }
             current_stream = stream_;

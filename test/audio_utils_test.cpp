@@ -442,6 +442,30 @@ TEST_F(AudioUtilsTest, GetStreamLatencyReturnsInputLatency) {
     EXPECT_DOUBLE_EQ(latency, 0.02);
 }
 
+TEST_F(AudioUtilsTest, AbortStream_Success) {
+    using ::testing::Return;
+    EXPECT_CALL(*mock_pa_, abortStream(::testing::_)).WillOnce(Return(paNoError));
+    EXPECT_CALL(*mock_pa_, closeStream(::testing::_)).WillOnce(Return(paNoError));
+
+    EXPECT_NO_THROW(audio::utils::abort_stream(nullptr, mock_pa_.get()));
+}
+
+TEST_F(AudioUtilsTest, AbortStream_ThrowsOnAbortFailure) {
+    using ::testing::Return;
+    EXPECT_CALL(*mock_pa_, abortStream(::testing::_)).WillOnce(Return(paInternalError));
+    EXPECT_CALL(*mock_pa_, closeStream(::testing::_)).Times(0);
+
+    EXPECT_THROW(audio::utils::abort_stream(nullptr, mock_pa_.get()), std::runtime_error);
+}
+
+TEST_F(AudioUtilsTest, AbortStream_ThrowsOnCloseFailure) {
+    using ::testing::Return;
+    EXPECT_CALL(*mock_pa_, abortStream(::testing::_)).WillOnce(Return(paNoError));
+    EXPECT_CALL(*mock_pa_, closeStream(::testing::_)).WillOnce(Return(paInternalError));
+
+    EXPECT_THROW(audio::utils::abort_stream(nullptr, mock_pa_.get()), std::runtime_error);
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   ::testing::AddGlobalTestEnvironment(new test_utils::AudioTestEnvironment);

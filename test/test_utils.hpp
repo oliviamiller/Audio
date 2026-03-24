@@ -40,6 +40,7 @@ public:
     MOCK_METHOD(PaError, startStream, (PaStream* stream), (const, override));
     MOCK_METHOD(PaError, terminate, (), (const, override));
     MOCK_METHOD(PaError, stopStream, (PaStream* stream), (const, override));
+    MOCK_METHOD(PaError, abortStream, (PaStream* stream), (const, override));
     MOCK_METHOD(PaError, closeStream, (PaStream* stream), (const, override));
     MOCK_METHOD(PaDeviceIndex, getDeviceCount, (), (const, override));
     MOCK_METHOD(const PaStreamInfo*, getStreamInfo, (PaStream* stream), (const, override));
@@ -85,6 +86,8 @@ protected:
         ON_CALL(*mock_pa_, startStream(_))
             .WillByDefault(Return(paNoError));
         ON_CALL(*mock_pa_, stopStream(_))
+            .WillByDefault(Return(paNoError));
+        ON_CALL(*mock_pa_, abortStream(_))
             .WillByDefault(Return(paNoError));
         ON_CALL(*mock_pa_, closeStream(_))
             .WillByDefault(Return(paNoError));

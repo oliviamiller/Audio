@@ -309,6 +309,27 @@ inline void shutdown_stream(PaStream* stream, const audio::portaudio::PortAudioI
     }
 }
 
+inline void abort_stream(PaStream* stream, const audio::portaudio::PortAudioInterface* pa = nullptr) {
+    audio::portaudio::RealPortAudio real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa ? *pa : real_pa;
+
+    PaError err = audio_interface.abortStream(stream);
+    if (err != paNoError) {
+        std::ostringstream buffer;
+        buffer << "failed to abort the stream: " << Pa_GetErrorText(err);
+        VIAM_SDK_LOG(error) << "[abort_stream] " << buffer.str();
+        throw std::runtime_error(buffer.str());
+    }
+
+    err = audio_interface.closeStream(stream);
+    if (err != paNoError) {
+        std::ostringstream buffer;
+        buffer << "failed to close the stream: " << Pa_GetErrorText(err);
+        VIAM_SDK_LOG(error) << "[abort_stream] " << buffer.str();
+        throw std::runtime_error(buffer.str());
+    }
+}
+
 // Returns the actual latency reported by PortAudio after stream open (inputLatency for
 // input streams, outputLatency for output streams). Falls back to suggested_latency_seconds
 // if stream info is unavailable.
@@ -376,7 +397,7 @@ inline AudioDeviceSetup<ContextType> setup_audio_device(const viam::sdk::Resourc
     return setup;
 }
 
-constexpr uint64_t STREAM_RESTART_THRESHOLD_MS = 5000;
+constexpr uint64_t STREAM_RESTART_THRESHOLD_MS = 2000;
 constexpr uint64_t STALENESS_LOG_THROTTLE_NS = 1'000'000'000ULL;  // Log at most once per second
 
 // Logs a warning if the audio callback hasn't fired recently, indicating the stream may have stalled.
