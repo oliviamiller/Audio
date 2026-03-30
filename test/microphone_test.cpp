@@ -317,9 +317,9 @@ TEST_F(MicrophoneTest, SetsCorrectFields) {
     microphone::Microphone mic(deps, config, mock_pa_.get());
 
     // Verify behavior: member variables are set from config
-    EXPECT_EQ(mic.sample_rate_, sample_rate);
-    EXPECT_EQ(mic.num_channels_, num_channels);
-    EXPECT_EQ(mic.device_name_, testDeviceName);
+    EXPECT_EQ(mic.stream_params_.sample_rate, sample_rate);
+    EXPECT_EQ(mic.stream_params_.num_channels, num_channels);
+    EXPECT_EQ(mic.stream_params_.device_name, testDeviceName);
     EXPECT_DOUBLE_EQ(mic.latency_, test_latency_ms / 1000.0);  // Stored in seconds
 }
 
@@ -433,8 +433,8 @@ TEST_F(MicrophoneTest, UsesDeviceDefaultSampleRate) {
 
     microphone::Microphone mic(deps, config, mock_pa_.get());
 
-    EXPECT_EQ(mic.sample_rate_, 48000);
-    EXPECT_EQ(mic.num_channels_, 2);
+    EXPECT_EQ(mic.stream_params_.sample_rate, 48000);
+    EXPECT_EQ(mic.stream_params_.num_channels, 2);
 }
 
 TEST_F(MicrophoneTest, DeviceNotFoundThrows) {
@@ -518,10 +518,10 @@ TEST_F(MicrophoneTest, ReconfigureDifferentDeviceName) {
 
     EXPECT_NO_THROW(mic.reconfigure(test_deps_, new_config));
 
-    EXPECT_EQ(mic.device_name_, new_device_name);
-    EXPECT_EQ(mic.sample_rate_, 22000);
+    EXPECT_EQ(mic.stream_params_.device_name, new_device_name);
+    EXPECT_EQ(mic.stream_params_.sample_rate, 22000);
     EXPECT_EQ(mic.requested_sample_rate_, 22000);
-    EXPECT_EQ(mic.num_channels_, 2);
+    EXPECT_EQ(mic.stream_params_.num_channels, 2);
 }
 
 
@@ -546,9 +546,9 @@ TEST_F(MicrophoneTest, ReconfigureDifferentSampleRate) {
 
     EXPECT_NO_THROW(mic.reconfigure(test_deps_, new_config));
 
-    EXPECT_EQ(mic.device_name_, testDeviceName);
+    EXPECT_EQ(mic.stream_params_.device_name, testDeviceName);
     EXPECT_EQ(mic.requested_sample_rate_, 2000);
-    EXPECT_EQ(mic.num_channels_, 2);
+    EXPECT_EQ(mic.stream_params_.num_channels, 2);
 }
 
 
@@ -572,9 +572,9 @@ TEST_F(MicrophoneTest, ReconfigureDifferentNumChannels) {
 
     EXPECT_NO_THROW(mic.reconfigure(test_deps_, new_config));
 
-    EXPECT_EQ(mic.device_name_, testDeviceName);
-    EXPECT_EQ(mic.sample_rate_, test_utils::DEFAULT_DEVICE_SAMPLE_RATE);
-    EXPECT_EQ(mic.num_channels_, 1);
+    EXPECT_EQ(mic.stream_params_.device_name, testDeviceName);
+    EXPECT_EQ(mic.stream_params_.sample_rate, test_utils::DEFAULT_DEVICE_SAMPLE_RATE);
+    EXPECT_EQ(mic.stream_params_.num_channels, 1);
 }
 
 TEST_F(MicrophoneTest, ReconfigureChangesAudioContext) {
@@ -1272,6 +1272,113 @@ TEST_F(MicrophoneTest, HistoricalDataRespectsDuration) {
     double duration_seconds = static_cast<double>(last_chunk_end_ns - first_chunk_start_ns) / 1e9;
     EXPECT_EQ(duration_seconds, 10.0);
     EXPECT_EQ(chunk_count, 100);
+}
+
+TEST_F(MicrophoneTest, RestartStalledStream_RestartsStream) {
+    auto config = createConfig();
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
+
+    const auto original_context = mic.audio_context_;
+    PaStream* new_stream = reinterpret_cast<PaStream*>(0x5678);
+
+    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
+        .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(new_stream), ::testing::Return(paNoError)));
+    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+
+    mic.restart_stalled_stream(original_context);
+
+    EXPECT_NE(mic.audio_context_, original_context);
+    EXPECT_EQ(mic.restart_attempts_, 0);
+}
+
+TEST_F(MicrophoneTest, RestartStalledStream_ShutsDownExistingStream) {
+    auto config = createConfig();
+    expectSuccessfulStreamCreation();
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
+
+    const auto original_context = mic.audio_context_;
+    PaStream* new_stream = reinterpret_cast<PaStream*>(0x5678);
+
+    EXPECT_CALL(*mock_pa_, abortStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+    EXPECT_CALL(*mock_pa_, closeStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
+        .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(new_stream), ::testing::Return(paNoError)));
+    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+
+    mic.restart_stalled_stream(original_context);
+
+    EXPECT_NE(mic.audio_context_, original_context);
+    EXPECT_EQ(mic.restart_attempts_, 0);
+}
+
+TEST_F(MicrophoneTest, RestartStalledStream_NoOpWhenContextChanged) {
+    auto config = createConfig();
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
+
+    const auto current_context = mic.audio_context_;
+
+    // Pass a stale context (not the current one)
+    viam::sdk::audio_info info{viam::sdk::audio_codecs::PCM_16, 44100, 1};
+    const auto stale_context = std::make_shared<audio::InputStreamContext>(info, audio::BUFFER_DURATION_SECONDS);
+
+    mic.restart_stalled_stream(stale_context);
+
+    EXPECT_EQ(mic.audio_context_, current_context);
+    EXPECT_EQ(mic.restart_attempts_, 0);
+}
+
+TEST_F(MicrophoneTest, RestartStalledStream_IncrementsAttemptsOnFailure) {
+    auto config = createConfig();
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
+
+    const auto original_context = mic.audio_context_;
+
+    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
+        .WillOnce(::testing::Return(paInvalidDevice));
+
+    EXPECT_NO_THROW(mic.restart_stalled_stream(original_context));
+
+    EXPECT_EQ(mic.restart_attempts_, 1);
+    EXPECT_EQ(mic.audio_context_, original_context);  // unchanged on failure
+}
+
+TEST_F(MicrophoneTest, RestartStalledStream_ThrowsAfterThreeFailures) {
+    auto config = createConfig();
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
+
+    const auto original_context = mic.audio_context_;
+
+    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
+        .WillRepeatedly(::testing::Return(paInvalidDevice));
+
+    EXPECT_NO_THROW(mic.restart_stalled_stream(original_context));  // attempt 1
+    EXPECT_EQ(mic.restart_attempts_, 1);
+
+    EXPECT_NO_THROW(mic.restart_stalled_stream(original_context));  // attempt 2
+    EXPECT_EQ(mic.restart_attempts_, 2);
+
+    EXPECT_THROW(mic.restart_stalled_stream(original_context), std::runtime_error);  // attempt 3
+}
+
+TEST_F(MicrophoneTest, RestartStalledStream_ResetsAttemptsOnSuccess) {
+    auto config = createConfig();
+    microphone::Microphone mic(test_deps_, config, mock_pa_.get());
+
+    const auto original_context = mic.audio_context_;
+    PaStream* new_stream = reinterpret_cast<PaStream*>(0x5678);
+
+    EXPECT_CALL(*mock_pa_, openStream(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
+        .WillOnce(::testing::Return(paInvalidDevice))
+        .WillOnce(::testing::Return(paInvalidDevice))
+        .WillOnce(::testing::DoAll(::testing::SetArgPointee<0>(new_stream), ::testing::Return(paNoError)));
+    EXPECT_CALL(*mock_pa_, startStream(::testing::_)).WillOnce(::testing::Return(paNoError));
+
+    mic.restart_stalled_stream(original_context);  // fail 1
+    mic.restart_stalled_stream(original_context);  // fail 2
+    mic.restart_stalled_stream(original_context);  // success
+
+    EXPECT_EQ(mic.restart_attempts_, 0);
+    EXPECT_NE(mic.audio_context_, original_context);
 }
 
 class AudioCallbackTest : public ::testing::Test {

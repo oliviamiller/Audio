@@ -20,6 +20,7 @@ namespace microphone {
 namespace vsdk = ::viam::sdk;
 
 constexpr double DEFAULT_HISTORICAL_THROTTLE_MS = 50;
+constexpr int MAX_STREAM_RESTART_ATTEMPTS = 3;
 PaDeviceIndex findDeviceByName(const std::string& name, const audio::portaudio::PortAudioInterface& pa);
 
 // Calculates the initial read position from a previous timestamp
@@ -52,6 +53,10 @@ class Microphone final : public viam::sdk::AudioIn, public viam::sdk::Reconfigur
     std::vector<viam::sdk::GeometryConfig> get_geometries(const viam::sdk::ProtoStruct& extra);
     void reconfigure(const viam::sdk::Dependencies& deps, const viam::sdk::ResourceConfig& cfg);
 
+    // Restarts the stream.
+    // Must NOT be called while holding stream_ctx_mu_.
+    void restart_stalled_stream(const std::shared_ptr<audio::InputStreamContext>& stream_context);
+
     void setup_stream_params(audio::codec::AudioCodec codec_enum,
                              MP3EncoderContext& mp3_ctx,
                              bool is_reconfigure,
@@ -63,11 +68,7 @@ class Microphone final : public viam::sdk::AudioIn, public viam::sdk::Reconfigur
                              int& device_samples_per_chunk);
 
     // Member variables
-    std::string device_name_;
-    PaDeviceIndex device_index_;
-    int sample_rate_;            // Device's native sample rate (what stream is opened at)
     int requested_sample_rate_;  // User's requested sample rate (may differ from device rate)
-    int num_channels_;
     double latency_;
     int historical_throttle_ms_;  // Throttle time for historical data stream
     static vsdk::Model model;
@@ -80,6 +81,9 @@ class Microphone final : public viam::sdk::AudioIn, public viam::sdk::Reconfigur
     const audio::portaudio::PortAudioInterface* pa_;
     // Count of active get_audio calls
     int active_streams_;
+    int restart_attempts_;
+
+    audio::utils::StreamParams stream_params_;
 };
 
 /**

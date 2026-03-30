@@ -309,6 +309,27 @@ inline void shutdown_stream(PaStream* stream, const audio::portaudio::PortAudioI
     }
 }
 
+inline void abort_stream(PaStream* stream, const audio::portaudio::PortAudioInterface* pa = nullptr) {
+    audio::portaudio::RealPortAudio real_pa;
+    const audio::portaudio::PortAudioInterface& audio_interface = pa ? *pa : real_pa;
+
+    PaError err = audio_interface.abortStream(stream);
+    if (err != paNoError) {
+        std::ostringstream buffer;
+        buffer << "failed to abort the stream: " << Pa_GetErrorText(err);
+        VIAM_SDK_LOG(error) << "[abort_stream] " << buffer.str();
+        throw std::runtime_error(buffer.str());
+    }
+
+    err = audio_interface.closeStream(stream);
+    if (err != paNoError) {
+        std::ostringstream buffer;
+        buffer << "failed to close the stream: " << Pa_GetErrorText(err);
+        VIAM_SDK_LOG(error) << "[abort_stream] " << buffer.str();
+        throw std::runtime_error(buffer.str());
+    }
+}
+
 // Returns the actual latency reported by PortAudio after stream open (inputLatency for
 // input streams, outputLatency for output streams). Falls back to suggested_latency_seconds
 // if stream info is unavailable.
@@ -321,7 +342,8 @@ inline double get_stream_latency(PaStream* stream, const StreamParams& params, c
     return params.is_input ? stream_info->inputLatency : stream_info->outputLatency;
 }
 
-inline void restart_stream(PaStream*& stream, const StreamParams& params, const audio::portaudio::PortAudioInterface* pa = nullptr) {
+// Note: caller must set params.user_data before calling.
+inline void restart_stream(PaStream*& stream, StreamParams& params, const audio::portaudio::PortAudioInterface* pa = nullptr) {
     // In production pa is nullptr and real_pa is used. For testing, pa is the mock pa
     audio::portaudio::RealPortAudio real_pa;
     const audio::portaudio::PortAudioInterface& audio_interface = pa ? *pa : real_pa;
@@ -374,7 +396,7 @@ inline AudioDeviceSetup<ContextType> setup_audio_device(const viam::sdk::Resourc
     return setup;
 }
 
-constexpr uint64_t CALLBACK_STALENESS_THRESHOLD_MS = 1000;
+constexpr uint64_t STREAM_RESTART_THRESHOLD_MS = 2000;
 constexpr uint64_t STALENESS_LOG_THROTTLE_NS = 1'000'000'000ULL;  // Log at most once per second
 
 // Logs a warning if the audio callback hasn't fired recently, indicating the stream may have stalled.
@@ -388,7 +410,7 @@ inline void log_callback_staleness(const std::atomic<uint64_t>& last_callback_ti
     if (last_cb > 0) {
         const uint64_t now_ns = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
         const uint64_t elapsed_ms = (now_ns - last_cb) / 1'000'000;
-        if (elapsed_ms > CALLBACK_STALENESS_THRESHOLD_MS && now_ns - last_log_ns > STALENESS_LOG_THROTTLE_NS) {
+        if (elapsed_ms > STREAM_RESTART_THRESHOLD_MS && now_ns - last_log_ns > STALENESS_LOG_THROTTLE_NS) {
             last_log_ns = now_ns;
             if (!stream) {
                 VIAM_SDK_LOG(error) << context << " log_callback_staleness called with null stream";

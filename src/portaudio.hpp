@@ -23,6 +23,7 @@ class PortAudioInterface {
     virtual PaError startStream(PaStream* stream) const = 0;
     virtual PaError terminate() const = 0;
     virtual PaError stopStream(PaStream* stream) const = 0;
+    virtual PaError abortStream(PaStream* stream) const = 0;
     virtual PaError closeStream(PaStream* stream) const = 0;
     virtual PaDeviceIndex getDeviceCount() const = 0;
     virtual const PaStreamInfo* getStreamInfo(PaStream* stream) const = 0;
@@ -72,6 +73,10 @@ class RealPortAudio : public PortAudioInterface {
 
     PaError stopStream(PaStream* stream) const override {
         return Pa_StopStream(stream);
+    }
+
+    PaError abortStream(PaStream* stream) const override {
+        return Pa_AbortStream(stream);
     }
 
     PaError closeStream(PaStream* stream) const override {
