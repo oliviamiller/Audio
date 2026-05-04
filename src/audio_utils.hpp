@@ -314,9 +314,9 @@ inline void openStream(PaStream*& stream, const StreamParams& params, const audi
 
     if (err != paNoError) {
         std::ostringstream buffer;
-        buffer << "Failed to open audio stream for device '" << params.device_name << "' (index " << params.device_index
-               << "): " << Pa_GetErrorText(err) << " (sample_rate=" << params.sample_rate << ", channels=" << params.num_channels
-               << ", latency=" << stream_params.suggestedLatency << "s)";
+        buffer << "Failed to open " << params.device_name << " (sample_rate=" << params.sample_rate
+               << ", channels=" << params.num_channels << ", latency=" << stream_params.suggestedLatency << "s): "
+               << Pa_GetErrorText(err);
         VIAM_SDK_LOG(error) << buffer.str();
         throw std::runtime_error(buffer.str());
     }
